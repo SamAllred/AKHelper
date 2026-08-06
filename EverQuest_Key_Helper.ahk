@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.4.7"
+appVersion := "1.4.8"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -1286,9 +1286,9 @@ StartLogMonitor() {
 
     logFileHandle.Seek(0, 2)
     logTextBuffer := ""
-    combatLastActivityAt := A_TickCount
+    combatLastActivityAt := 0
     combatIdlePaused := false
-    combatState := "Monitoring combat activity"
+    combatState := "Idle"
     lastLogEvent := "Watching " RegExReplace(logFilePath, ".*\\", "")
     SetTimer PollEverQuestLog, 100
 }
@@ -1386,6 +1386,7 @@ ProcessEverQuestLogLine(line) {
         QueueStatusRefresh()
         return
     } else if (IsOutgoingAttackAttemptLine(line)) {
+        RecordCombatActivity("Outgoing physical attack")
         lastAttackAttemptAt := A_TickCount
         lastPhysicalAttackLogTimestamp := logTimestamp
         lastPhysicalAttackLogSequence := logEventSequence
@@ -1548,6 +1549,7 @@ ReleaseTargetLock(reason) {
     global targetLockActive, targetLockName, targetLockState, lastLogEvent
     global lastAttackAttemptAt, attackState, attackTargetName
     global targetAcquisitionActive, rotationActive
+    global combatLastActivityAt, combatIdlePaused, combatState, lastCombatDirection
 
     targetAcquisitionActive := false
     if (rotationActive) {
@@ -1560,8 +1562,36 @@ ReleaseTargetLock(reason) {
     lastAttackAttemptAt := 0
     attackState := "Not attacking"
     attackTargetName := ""
+    combatLastActivityAt := 0
+    combatIdlePaused := false
+    combatState := "Idle"
+    lastCombatDirection := "No combat detected"
     lastLogEvent := reason
     UpdateStatus()
+}
+
+GetCombatMode() {
+    global isRunning, targetAcquisitionActive
+    global combatLastActivityAt, combatIdleSeconds
+
+    if (!isRunning || combatLastActivityAt <= 0) {
+        return targetAcquisitionActive ? "Acquiring" : "Idle"
+    }
+    if (targetAcquisitionActive) {
+        return "Acquiring"
+    }
+    recentWindowMs := Max(1, combatIdleSeconds) * 1000
+    return A_TickCount - combatLastActivityAt <= recentWindowMs ? "Attacking" : "Idle"
+}
+
+GetCombatModeDescription(combatMode) {
+    if (combatMode = "Acquiring") {
+        return "Combat detected; correcting line of sight"
+    }
+    if (combatMode = "Attacking") {
+        return "Combat detected; actively fighting or casting"
+    }
+    return "No combat detected"
 }
 
 IsOutgoingAttackAttemptLine(line) {
@@ -1668,10 +1698,18 @@ CheckCombatIdleTimeout() {
     global isRunning, combatIdlePauseEnabled, combatIdleSeconds
     global combatLastActivityAt, combatIdlePaused, combatState, lastMessage
 
-    if (!isRunning || !combatIdlePauseEnabled || combatIdlePaused || combatLastActivityAt <= 0) {
+    if (!isRunning || combatLastActivityAt <= 0) {
         return
     }
     if (A_TickCount - combatLastActivityAt < combatIdleSeconds * 1000) {
+        return
+    }
+
+    if (combatState != "Idle") {
+        combatState := "Idle"
+        QueueStatusRefresh()
+    }
+    if (!combatIdlePauseEnabled || combatIdlePaused) {
         return
     }
 
@@ -2497,10 +2535,9 @@ UpdateStatus() {
 
     keys := GetConfiguredKeys()
     activeTitle := GetActiveWindowTitleSafe()
-    state := isRunning
-        ? (targetAcquisitionActive ? "Target acquisition"
-            : (combatIdlePaused ? "Paused - waiting for combat" : "Running"))
-        : "Stopped"
+    state := isRunning ? (combatIdlePaused ? "Paused - waiting for combat" : "Running") : "Stopped"
+    combatMode := GetCombatMode()
+    combatModeDescription := GetCombatModeDescription(combatMode)
     nextAction := "Not scheduled"
     if (isRunning && nextTickAt > 0) {
         remainingSeconds := Max(0, nextTickAt - A_TickCount) / 1000
@@ -2570,8 +2607,7 @@ UpdateStatus() {
         "Next action in: " nextAction "`r`n"
         "Last event: " lastMessage "`r`n`r`n"
         "TARGET AND COMBAT`r`n"
-        "Target: " (targetAcquisitionActive ? "Acquiring"
-            : (targetLockActive ? "Acquired" : "Seeking")) "`r`n"
+        "State: " combatMode " - " combatModeDescription "`r`n"
         "Target name: " targetNameText "`r`n"
         "Target state: " targetLockState "`r`n"
         "Last outgoing damage: " targetAgeText "`r`n"
