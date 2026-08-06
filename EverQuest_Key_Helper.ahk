@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.5.0"
+appVersion := "1.5.1"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -1550,15 +1550,18 @@ FailTargetAcquisitionPhase(reason) {
 
 QueueStatusRefresh() {
     ; Combat logs can emit many lines in one second. Coalesce them into one
-    ; near-immediate repaint instead of rewriting the status control per line.
-    SetTimer RefreshLiveStatus, -50
+    ; near-immediate repaint without replacing the permanent live-status timer.
+    SetTimer FlushQueuedStatusRefresh, -50
+}
+
+FlushQueuedStatusRefresh() {
+    UpdateStatus()
 }
 
 ReleaseTargetLock(reason) {
     global targetLockActive, targetLockName, targetLockState, lastLogEvent
     global lastAttackAttemptAt, attackState, attackTargetName
     global targetAcquisitionActive, rotationActive
-    global combatLastActivityAt, combatIdlePaused, combatState, lastCombatDirection
 
     targetAcquisitionActive := false
     if (rotationActive) {
@@ -1571,10 +1574,6 @@ ReleaseTargetLock(reason) {
     lastAttackAttemptAt := 0
     attackState := "Not attacking"
     attackTargetName := ""
-    combatLastActivityAt := 0
-    combatIdlePaused := false
-    combatState := "Idle"
-    lastCombatDirection := "No combat detected"
     lastLogEvent := reason
     UpdateStatus()
 }
