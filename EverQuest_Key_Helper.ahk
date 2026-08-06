@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.5.3"
+appVersion := "1.5.4"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -1713,8 +1713,10 @@ DeferredCannotSeeCheck() {
 }
 
 IsOutgoingDamageLine(line) {
-    ; Confirm actual player-originated damage, not merely a cast attempt or a miss.
-    return RegExMatch(line, "i\] You (hit|slash|crush|pierce|punch|kick|bash|reave|frenzy on) .+ for [0-9]+")
+    ; Match the damage sentence, rather than a fixed list of attack verbs. EQ
+    ; adds verbs over time, and an unknown verb must not make combat look idle.
+    return RegExMatch(line,
+        "i\] You .+ for [0-9]+(?: \([0-9]+\))? points? of (?:[a-z-]+ )?damage")
         || RegExMatch(line, "i\] Your .+ (hits|slashes|crushes|pierces|punches|kicks|bashes|bites|claws) .+ for [0-9]+")
         || RegExMatch(line, "i\] .+ (has|have) taken [0-9]+ .+damage from your .+")
         || RegExMatch(line, "i\] .+ (is|are) .+ by YOUR .+ for [0-9]+ .+damage")
@@ -1734,11 +1736,15 @@ IsPlayerCombatActivityLine(line) {
     if (IsOutgoingDamageLine(line)) {
         return true
     }
+    ; Uppercase YOU is how the log identifies the local player as the target.
+    ; Matching the complete damage form catches hits, cleaves, kicks, and any
+    ; other attack verb without maintaining an incomplete verb allow-list.
     return RegExMatch(line,
-        "i\] .+ (hits|slashes|crushes|pierces|punches|kicks|bashes|bites|claws) YOU for [0-9]+")
+        "i\] .+ YOU for [0-9]+(?: \([0-9]+\))? points? of (?:[a-z-]+ )?damage")
         || RegExMatch(line, "i\] .+ hit you for [0-9]+ .+damage")
         || RegExMatch(line, "i\] You (?:have|has) taken [0-9]+ .+damage")
         || RegExMatch(line, "i\] You (?:are|were) hit by .+ for [0-9]+ .+damage")
+        || InStr(line, "] You have run out of ammo!")
 }
 
 RecordCombatActivity(direction := "Combat activity") {
