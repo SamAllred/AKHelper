@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.6.0"
+appVersion := "1.6.1"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -1801,24 +1801,34 @@ CheckCombatIdleTimeout() {
     }
     elapsedMs := A_TickCount - combatLastActivityAt
 
+    becameIdle := false
     if (elapsedMs >= combatActiveWindowMs && combatState != "Idle") {
         combatState := "Idle"
+        becameIdle := true
         QueueStatusRefresh()
-        RunWhenRule("CombatEnd", whenCombatEndAction, whenCombatEndValue)
     }
     ; Monitoring and display remain live while stopped. Only the optional
     ; sequence-pause behavior depends on key execution being active.
     if (!isRunning) {
         return
     }
-    if (!combatIdlePauseEnabled || combatIdlePaused
-        || elapsedMs < combatIdleSeconds * 1000) {
+    ; In continuous mode there is no queue-pause boundary, so the normal
+    ; five-second transition to Idle is the combat-end event.
+    if (!combatIdlePauseEnabled) {
+        if (becameIdle) {
+            RunWhenRule("CombatEnd", whenCombatEndAction, whenCombatEndValue)
+        }
+        return
+    }
+    if (combatIdlePaused || elapsedMs < combatIdleSeconds * 1000) {
         return
     }
 
     combatIdlePaused := true
     combatState := "Paused after " combatIdleSeconds " seconds without combat"
     lastMessage := "Combat ended; sequence remains armed and is waiting."
+    ; Pause first so no queued target or attack key can undo /attack off.
+    RunWhenRule("CombatEnd", whenCombatEndAction, whenCombatEndValue)
     UpdateStatus()
 }
 
