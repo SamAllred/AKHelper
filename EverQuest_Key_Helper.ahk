@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.5.4"
+appVersion := "1.5.5"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -228,6 +228,7 @@ helperGui.OnEvent("Close", (*) => ExitApp())
 
 BuildKeyVisuals()
 helperGui.Show("x40 y40")
+StartLogMonitor()
 UpdateStatus()
 SetTimer RefreshLiveStatus, 250
 SetTimer CheckForApplicationUpdate, -1500
@@ -412,6 +413,7 @@ LoadProfileIntoControls(profileName) {
     RefreshWhenRuleControls()
     BuildKeyVisuals()
     SaveProfileList()
+    StartLogMonitor()
     lastMessage := "Loaded profile: " profileName "."
     UpdateStatus()
 }
@@ -974,32 +976,14 @@ CleanupOnExit(*) {
 
 StartHelper() {
     global isRunning, seriesIndex, multipleResumeIndex, nextTickAt, lastMessage, sethMode
-    global targetLockActive, targetLockName, targetLockState, targetLockLastConfirmedAt
-    global targetAcquisitionActive
-    global lastAttackAttemptAt, attackState, attackTargetName
-    global lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
-    global lastOutgoingDamageLogTimestamp, lastOutgoingDamageLogSequence
-    global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
 
-    if (!SaveSettings()) {
+    ; Starting controls only key execution. The log monitor has already been
+    ; running since application launch, so preserve its combat/target history.
+    if (!SaveSettings(false)) {
         return
     }
 
     isRunning := true
-    targetLockActive := false
-    targetAcquisitionActive := false
-    targetLockName := ""
-    targetLockState := "Seeking target"
-    targetLockLastConfirmedAt := 0
-    lastAttackAttemptAt := 0
-    lastCannotSeeLogTimestamp := 0
-    lastCannotSeeLogSequence := 0
-    lastOutgoingDamageLogTimestamp := 0
-    lastOutgoingDamageLogSequence := 0
-    lastPhysicalAttackLogTimestamp := 0
-    lastPhysicalAttackLogSequence := 0
-    attackState := "Not attacking"
-    attackTargetName := ""
     seriesIndex := 1
     multipleResumeIndex := 1
     nextTickAt := A_TickCount + GetIntervalMs()
@@ -1011,13 +995,13 @@ StartHelper() {
     } else {
         ClearSethScheduler()
     }
-    StartLogMonitor()
     lastMessage := "Started."
     UpdateStatus()
 }
 
 StopHelper() {
     global isRunning, nextTickAt, mainActionBusy, sethActionBusy, heldSethKey, lastMessage
+    global rotationActive, targetAcquisitionActive
 
     isRunning := false
     nextTickAt := 0
@@ -1029,12 +1013,15 @@ StopHelper() {
     sethActionBusy := false
     SetTimer Tick, 0
     ClearSethScheduler()
-    StopLogMonitor()
-    lastMessage := "Stopped."
+    if (rotationActive) {
+        StopSlowRotation("Sequence stopped; log monitoring remains active.", false)
+    }
+    targetAcquisitionActive := false
+    lastMessage := "Sequence stopped; log monitoring remains active."
     UpdateStatus()
 }
 
-SaveSettings() {
+SaveSettings(restartLogMonitor := true) {
     global configPath, currentProfile, windowTitle, sequenceType, keyListText, intervalSeconds
     global beforeKeyDelayText, afterKeyDelayText, connectorFontSize
     global sleeperMode, sethMode, simpleSethMode
@@ -1129,6 +1116,9 @@ SaveSettings() {
             StartNewSethCycle()
             SetTimer SethScheduler, 250
         }
+    }
+
+    if (restartLogMonitor) {
         StartLogMonitor()
     }
 
@@ -1266,15 +1256,11 @@ FindNewestEqLog() {
 }
 
 StartLogMonitor() {
-    global isRunning, configuredLogFilePath, logFilePath, logFileHandle, lastLogEvent, logTextBuffer
+    global configuredLogFilePath, logFilePath, logFileHandle, lastLogEvent, logTextBuffer
     global logReadOffset, logLinesProcessed, lastLogLineAt, lastLogReadError
     global combatLastActivityAt, combatIdlePaused, combatState
 
     StopLogMonitor()
-    if (!isRunning || !WhenRulesEnabled()) {
-        return
-    }
-
     logFilePath := configuredLogFilePath != "" ? configuredLogFilePath : FindNewestEqLog()
     if (logFilePath = "") {
         lastLogEvent := "Log monitor could not find an eqlog file."
@@ -1337,11 +1323,11 @@ StopLogMonitor() {
 }
 
 PollEverQuestLog() {
-    global isRunning, logFilePath, logFileHandle, logTextBuffer
+    global logFilePath, logFileHandle, logTextBuffer
     global logReadOffset, logLinesProcessed, lastLogLineAt, lastLogReadError
     global lastLogEvent
 
-    if (!isRunning || logFilePath = "") {
+    if (logFilePath = "") {
         return
     }
 
@@ -1633,10 +1619,10 @@ ReleaseTargetLock(reason) {
 }
 
 GetCombatMode() {
-    global isRunning, targetAcquisitionActive
+    global targetAcquisitionActive
     global combatLastActivityAt, combatActiveWindowMs
 
-    if (!isRunning || combatLastActivityAt <= 0) {
+    if (combatLastActivityAt <= 0) {
         return targetAcquisitionActive ? "Acquiring" : "Idle"
     }
     if (targetAcquisitionActive) {
@@ -1768,7 +1754,7 @@ CheckCombatIdleTimeout() {
     global combatActiveWindowMs
     global combatLastActivityAt, combatIdlePaused, combatState, lastMessage
 
-    if (!isRunning || combatLastActivityAt <= 0) {
+    if (combatLastActivityAt <= 0) {
         return
     }
     elapsedMs := A_TickCount - combatLastActivityAt
@@ -1776,6 +1762,11 @@ CheckCombatIdleTimeout() {
     if (elapsedMs >= combatActiveWindowMs && combatState != "Idle") {
         combatState := "Idle"
         QueueStatusRefresh()
+    }
+    ; Monitoring and display remain live while stopped. Only the optional
+    ; sequence-pause behavior depends on key execution being active.
+    if (!isRunning) {
+        return
     }
     if (!combatIdlePauseEnabled || combatIdlePaused
         || elapsedMs < combatIdleSeconds * 1000) {
@@ -1789,9 +1780,11 @@ CheckCombatIdleTimeout() {
 }
 
 RunWhenRule(eventName, action, value) {
-    global reactionLastAt, lastMessage, rotationActive
+    global isRunning, reactionLastAt, lastMessage, rotationActive
 
-    if (action = "Do Nothing") {
+    ; Log events are always observed, but Start/Stop exclusively controls
+    ; whether an event may inject keys, commands, or rotation actions.
+    if (!isRunning || action = "Do Nothing") {
         return
     }
     if (action = "Rotate Slowly Until Target" && rotationActive) {
@@ -2634,9 +2627,9 @@ UpdateStatus() {
                 . " | queued: " sethQueue.Length
         }
     }
-    logState := WhenRulesEnabled()
-        ? (logFilePath != "" ? "On - " RegExReplace(logFilePath, ".*\\", "") : "Configured - log not open")
-        : "Off - no active rules"
+    logState := logFilePath != ""
+        ? "On - " RegExReplace(logFilePath, ".*\\", "")
+        : "Configured - log not open"
     logInputStatus := logLinesProcessed " new lines processed"
     if (lastLogLineAt > 0) {
         logInputStatus .= " | last line " Format("{:.1f}", Max(0, A_TickCount - lastLogLineAt) / 1000) "s ago"
@@ -2719,10 +2712,7 @@ UpdateStatus() {
 }
 
 RefreshLiveStatus() {
-    global isRunning
-    if (isRunning) {
-        UpdateStatus()
-    }
+    UpdateStatus()
 }
 
 TestNow() {
