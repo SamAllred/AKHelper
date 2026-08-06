@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.5.9"
+appVersion := "1.6.0"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -89,6 +89,8 @@ whenManaActionDropDown := ""
 whenManaValueEdit := ""
 whenCannotSeeActionDropDown := ""
 whenCannotSeeValueEdit := ""
+whenCombatEndActionDropDown := ""
+whenCombatEndValueEdit := ""
 whenRotationSecondsEdit := ""
 combatIdlePauseCheckBox := ""
 combatIdleSecondsEdit := ""
@@ -123,6 +125,8 @@ whenManaAction := ReadProfileSetting(currentProfile, "WhenManaAction", "Do Nothi
 whenManaValue := ReadProfileSetting(currentProfile, "WhenManaValue", "")
 whenCannotSeeAction := ReadProfileSetting(currentProfile, "WhenCannotSeeAction", "Do Nothing")
 whenCannotSeeValue := ReadProfileSetting(currentProfile, "WhenCannotSeeValue", "Left")
+whenCombatEndAction := ReadProfileSetting(currentProfile, "WhenCombatEndAction", "Send Command")
+whenCombatEndValue := ReadProfileSetting(currentProfile, "WhenCombatEndValue", "/attack off")
 whenRotationSeconds := Integer(ReadProfileSetting(currentProfile, "WhenRotationSeconds", "10"))
 if (whenRotationSeconds < 1 || whenRotationSeconds > 60) {
     whenRotationSeconds := 10
@@ -354,7 +358,7 @@ LoadProfileIntoControls(profileName) {
     global beforeKeyDelayText, afterKeyDelayText, connectorFontSize
     global sleeperMode, sethMode, simpleSethMode, modeIndex
     global whenDeathAction, whenDeathValue, whenManaAction, whenManaValue
-    global whenCannotSeeAction, whenCannotSeeValue, whenRotationSeconds
+    global whenCannotSeeAction, whenCannotSeeValue, whenCombatEndAction, whenCombatEndValue, whenRotationSeconds
     global combatIdlePauseEnabled, combatIdleSeconds
     global combatIdlePauseEnabled, combatIdleSeconds
     global configuredLogFilePath
@@ -386,6 +390,8 @@ LoadProfileIntoControls(profileName) {
     whenManaValue := ReadProfileSetting(profileName, "WhenManaValue", "")
     whenCannotSeeAction := ReadProfileSetting(profileName, "WhenCannotSeeAction", "Do Nothing")
     whenCannotSeeValue := ReadProfileSetting(profileName, "WhenCannotSeeValue", "Left")
+    whenCombatEndAction := ReadProfileSetting(profileName, "WhenCombatEndAction", "Send Command")
+    whenCombatEndValue := ReadProfileSetting(profileName, "WhenCombatEndValue", "/attack off")
     whenRotationSeconds := Integer(ReadProfileSetting(profileName, "WhenRotationSeconds", "10"))
     if (whenRotationSeconds < 1 || whenRotationSeconds > 60) {
         whenRotationSeconds := 10
@@ -560,6 +566,7 @@ OpenWhenRules() {
     global whenDeathActionDropDown, whenDeathValueEdit
     global whenManaActionDropDown, whenManaValueEdit
     global whenCannotSeeActionDropDown, whenCannotSeeValueEdit, whenRotationSecondsEdit
+    global whenCombatEndActionDropDown, whenCombatEndValueEdit
     global combatIdlePauseCheckBox, combatIdleSecondsEdit
 
     if (!IsObject(whenRulesGui)) {
@@ -585,6 +592,10 @@ OpenWhenRules() {
         whenRulesGui.AddText("xm y+10 w205", "You cannot see your target")
         whenCannotSeeActionDropDown := whenRulesGui.AddDropDownList("x+8 yp-3 w190", whenActions)
         whenCannotSeeValueEdit := whenRulesGui.AddEdit("x+8 yp w210")
+
+        whenRulesGui.AddText("xm y+10 w205", "Combat ends")
+        whenCombatEndActionDropDown := whenRulesGui.AddDropDownList("x+8 yp-3 w190", whenActions)
+        whenCombatEndValueEdit := whenRulesGui.AddEdit("x+8 yp w210")
 
         whenRulesGui.AddText("xm y+14", "Maximum slow-rotation time")
         whenRotationSecondsEdit := whenRulesGui.AddEdit("x+8 yp-3 w55 Number")
@@ -613,11 +624,12 @@ OpenWhenRules() {
 
 RefreshWhenRuleControls() {
     global whenRulesGui, whenDeathAction, whenDeathValue, whenManaAction, whenManaValue
-    global whenCannotSeeAction, whenCannotSeeValue, whenRotationSeconds
+    global whenCannotSeeAction, whenCannotSeeValue, whenCombatEndAction, whenCombatEndValue, whenRotationSeconds
     global combatIdlePauseEnabled, combatIdleSeconds
     global whenDeathActionDropDown, whenDeathValueEdit
     global whenManaActionDropDown, whenManaValueEdit
     global whenCannotSeeActionDropDown, whenCannotSeeValueEdit, whenRotationSecondsEdit
+    global whenCombatEndActionDropDown, whenCombatEndValueEdit
     global combatIdlePauseCheckBox, combatIdleSecondsEdit
 
     if (!IsObject(whenRulesGui)) {
@@ -629,6 +641,8 @@ RefreshWhenRuleControls() {
     whenManaValueEdit.Value := whenManaValue
     whenCannotSeeActionDropDown.Text := whenCannotSeeAction
     whenCannotSeeValueEdit.Value := whenCannotSeeValue
+    whenCombatEndActionDropDown.Text := whenCombatEndAction
+    whenCombatEndValueEdit.Value := whenCombatEndValue
     whenRotationSecondsEdit.Value := whenRotationSeconds
     combatIdlePauseCheckBox.Value := combatIdlePauseEnabled ? 1 : 0
     combatIdleSecondsEdit.Value := combatIdleSeconds
@@ -636,12 +650,13 @@ RefreshWhenRuleControls() {
 
 SaveWhenRules() {
     global whenDeathAction, whenDeathValue, whenManaAction, whenManaValue
-    global whenCannotSeeAction, whenCannotSeeValue, whenRotationSeconds
+    global whenCannotSeeAction, whenCannotSeeValue, whenCombatEndAction, whenCombatEndValue, whenRotationSeconds
     global combatIdlePauseEnabled, combatIdleSeconds
     global configuredLogFilePath, logFilePathEdit
     global whenDeathActionDropDown, whenDeathValueEdit
     global whenManaActionDropDown, whenManaValueEdit
     global whenCannotSeeActionDropDown, whenCannotSeeValueEdit, whenRotationSecondsEdit
+    global whenCombatEndActionDropDown, whenCombatEndValueEdit
     global combatIdlePauseCheckBox, combatIdleSecondsEdit
 
     try rotationSeconds := Integer(Trim(whenRotationSecondsEdit.Value))
@@ -667,13 +682,16 @@ SaveWhenRules() {
     whenManaValue := Trim(whenManaValueEdit.Value)
     whenCannotSeeAction := whenCannotSeeActionDropDown.Text
     whenCannotSeeValue := Trim(whenCannotSeeValueEdit.Value)
+    whenCombatEndAction := whenCombatEndActionDropDown.Text
+    whenCombatEndValue := Trim(whenCombatEndValueEdit.Value)
     whenRotationSeconds := rotationSeconds
     combatIdlePauseEnabled := combatIdlePauseCheckBox.Value = 1
     combatIdleSeconds := enteredCombatIdleSeconds
 
     if (!ValidateWhenRuleValue(whenDeathAction, whenDeathValue)
         || !ValidateWhenRuleValue(whenManaAction, whenManaValue)
-        || !ValidateWhenRuleValue(whenCannotSeeAction, whenCannotSeeValue)) {
+        || !ValidateWhenRuleValue(whenCannotSeeAction, whenCannotSeeValue)
+        || !ValidateWhenRuleValue(whenCombatEndAction, whenCombatEndValue)) {
         MsgBox "Send Command, Press Key, and Rotate actions require a value.", "When... Happens"
         return false
     }
@@ -1031,7 +1049,7 @@ SaveSettings(restartLogMonitor := true) {
     global beforeKeyDelayText, afterKeyDelayText, connectorFontSize
     global sleeperMode, sethMode, simpleSethMode
     global whenDeathAction, whenDeathValue, whenManaAction, whenManaValue
-    global whenCannotSeeAction, whenCannotSeeValue, whenRotationSeconds
+    global whenCannotSeeAction, whenCannotSeeValue, whenCombatEndAction, whenCombatEndValue, whenRotationSeconds
     global combatIdlePauseEnabled, combatIdleSeconds, configuredLogFilePath
     global windowTitleEdit, sequenceTypeDropDown, keyListEdit, intervalEdit
     global beforeKeyDelayEdit, afterKeyDelayEdit, connectorFontSizeEdit
@@ -1103,6 +1121,8 @@ SaveSettings(restartLogMonitor := true) {
     IniWrite whenManaValue, configPath, section, "WhenManaValue"
     IniWrite whenCannotSeeAction, configPath, section, "WhenCannotSeeAction"
     IniWrite whenCannotSeeValue, configPath, section, "WhenCannotSeeValue"
+    IniWrite whenCombatEndAction, configPath, section, "WhenCombatEndAction"
+    IniWrite whenCombatEndValue, configPath, section, "WhenCombatEndValue"
     IniWrite whenRotationSeconds, configPath, section, "WhenRotationSeconds"
     IniWrite combatIdlePauseEnabled ? 1 : 0, configPath, section, "CombatIdlePauseEnabled"
     IniWrite combatIdleSeconds, configPath, section, "CombatIdleSeconds"
@@ -1239,10 +1259,11 @@ GetConfiguredKeys() {
 }
 
 WhenRulesEnabled() {
-    global whenDeathAction, whenManaAction, whenCannotSeeAction, combatIdlePauseEnabled
+    global whenDeathAction, whenManaAction, whenCannotSeeAction, whenCombatEndAction, combatIdlePauseEnabled
     return whenDeathAction != "Do Nothing"
         || whenManaAction != "Do Nothing"
         || whenCannotSeeAction != "Do Nothing"
+        || whenCombatEndAction != "Do Nothing"
         || combatIdlePauseEnabled
 }
 
@@ -1773,6 +1794,7 @@ CheckCombatIdleTimeout() {
     global isRunning, combatIdlePauseEnabled, combatIdleSeconds
     global combatActiveWindowMs
     global combatLastActivityAt, combatIdlePaused, combatState, lastMessage
+    global whenCombatEndAction, whenCombatEndValue
 
     if (combatLastActivityAt <= 0) {
         return
@@ -1782,6 +1804,7 @@ CheckCombatIdleTimeout() {
     if (elapsedMs >= combatActiveWindowMs && combatState != "Idle") {
         combatState := "Idle"
         QueueStatusRefresh()
+        RunWhenRule("CombatEnd", whenCombatEndAction, whenCombatEndValue)
     }
     ; Monitoring and display remain live while stopped. Only the optional
     ; sequence-pause behavior depends on key execution being active.
@@ -2608,7 +2631,7 @@ UpdateStatus() {
     global sethTriggerAt, sethCycleEndsAt, sethSelectedAction, sethQueue
     global logFilePath, lastLogEvent, rotationActive
     global logLinesProcessed, lastLogLineAt, lastLogReadError
-    global whenDeathAction, whenManaAction, whenCannotSeeAction
+    global whenDeathAction, whenManaAction, whenCannotSeeAction, whenCombatEndAction
     global combatIdlePauseEnabled, combatIdleSeconds, combatIdlePaused
     global combatLastActivityAt, combatActiveWindowMs, combatState
     global lastCombatDirection
@@ -2724,6 +2747,7 @@ UpdateStatus() {
         "Log input: " logInputStatus "`r`n"
         "Last log event: " lastLogEvent "`r`n"
         "Death: " whenDeathAction " | Mana: " whenManaAction " | Cannot see: " whenCannotSeeAction "`r`n"
+        "Combat end: " whenCombatEndAction "`r`n"
         "Target acquisition: " (targetAcquisitionActive
             ? (rotationActive ? "Active - turn 0.5s, observe 5s, repeat" : "Starting")
             : "Inactive") "`r`n`r`n"
