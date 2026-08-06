@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.5.1"
+appVersion := "1.5.2"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -28,6 +28,10 @@ configuredLogFilePath := ""
 logFilePath := ""
 logFileHandle := ""
 logTextBuffer := ""
+logReadOffset := 0
+logLinesProcessed := 0
+lastLogLineAt := 0
+lastLogReadError := ""
 lastLogEvent := "None"
 reactionLastAt := Map()
 reactionBusy := false
@@ -1263,6 +1267,7 @@ FindNewestEqLog() {
 
 StartLogMonitor() {
     global isRunning, configuredLogFilePath, logFilePath, logFileHandle, lastLogEvent, logTextBuffer
+    global logReadOffset, logLinesProcessed, lastLogLineAt, lastLogReadError
     global combatLastActivityAt, combatIdlePaused, combatState
 
     StopLogMonitor()
@@ -1281,17 +1286,22 @@ StartLogMonitor() {
         return
     }
 
-    try logFileHandle := FileOpen(logFilePath, "r")
-    catch {
+    try {
+        logFileHandle := FileOpen(logFilePath, "r")
+        logReadOffset := FileGetSize(logFilePath)
+        logFileHandle.Close()
         logFileHandle := ""
-    }
-    if (!IsObject(logFileHandle)) {
+    } catch as error {
+        logFileHandle := ""
+        lastLogReadError := error.Message
         lastLogEvent := "Log monitor could not open: " logFilePath
         return
     }
 
-    logFileHandle.Seek(0, 2)
     logTextBuffer := ""
+    logLinesProcessed := 0
+    lastLogLineAt := 0
+    lastLogReadError := ""
     combatLastActivityAt := 0
     combatIdlePaused := false
     combatState := "Idle"
@@ -1301,6 +1311,7 @@ StartLogMonitor() {
 
 StopLogMonitor() {
     global logFileHandle, logTextBuffer, rotationActive, reactionBusy, pendingCannotSee
+    global logReadOffset, logLinesProcessed, lastLogLineAt, lastLogReadError
     global targetAcquisitionActive
     global combatIdlePaused, combatLastActivityAt, combatState
 
@@ -1312,6 +1323,10 @@ StopLogMonitor() {
     }
     logFileHandle := ""
     logTextBuffer := ""
+    logReadOffset := 0
+    logLinesProcessed := 0
+    lastLogLineAt := 0
+    lastLogReadError := ""
     rotationActive := false
     targetAcquisitionActive := false
     reactionBusy := false
@@ -1322,14 +1337,47 @@ StopLogMonitor() {
 }
 
 PollEverQuestLog() {
-    global isRunning, logFileHandle, logTextBuffer
+    global isRunning, logFilePath, logFileHandle, logTextBuffer
+    global logReadOffset, logLinesProcessed, lastLogLineAt, lastLogReadError
+    global lastLogEvent
 
-    if (!isRunning || !IsObject(logFileHandle)) {
+    if (!isRunning || logFilePath = "") {
         return
     }
 
-    try newText := logFileHandle.Read()
-    catch {
+    try currentSize := FileGetSize(logFilePath)
+    catch as error {
+        lastLogReadError := error.Message
+        lastLogEvent := "Could not inspect the active log file."
+        QueueStatusRefresh()
+        return
+    }
+    if (currentSize < logReadOffset) {
+        ; EverQuest replaced or truncated the log. Resume from its new start.
+        logReadOffset := 0
+        logTextBuffer := ""
+    }
+    if (currentSize <= logReadOffset) {
+        CheckCombatIdleTimeout()
+        return
+    }
+
+    try {
+        logFileHandle := FileOpen(logFilePath, "r")
+        logFileHandle.Pos := logReadOffset
+        newText := logFileHandle.Read(currentSize - logReadOffset)
+        logReadOffset := logFileHandle.Pos
+        logFileHandle.Close()
+        logFileHandle := ""
+        lastLogReadError := ""
+    } catch as error {
+        if (IsObject(logFileHandle)) {
+            try logFileHandle.Close()
+        }
+        logFileHandle := ""
+        lastLogReadError := error.Message
+        lastLogEvent := "Could not read newly appended log data."
+        QueueStatusRefresh()
         return
     }
     if (newText = "") {
@@ -1342,6 +1390,8 @@ PollEverQuestLog() {
     logTextBuffer := lines.Pop()
     for line in lines {
         ProcessEverQuestLogLine(Trim(line, " `t`r`n"))
+        logLinesProcessed += 1
+        lastLogLineAt := A_TickCount
     }
     CheckCombatIdleTimeout()
 }
@@ -2534,6 +2584,7 @@ UpdateStatus() {
     global isRunning, nextTickAt, lastMessage, seriesIndex
     global sethTriggerAt, sethCycleEndsAt, sethSelectedAction, sethQueue
     global logFilePath, lastLogEvent, rotationActive
+    global logLinesProcessed, lastLogLineAt, lastLogReadError
     global whenDeathAction, whenManaAction, whenCannotSeeAction
     global combatIdlePauseEnabled, combatIdleSeconds, combatIdlePaused
     global combatLastActivityAt, combatActiveWindowMs, combatState
@@ -2576,6 +2627,13 @@ UpdateStatus() {
     logState := WhenRulesEnabled()
         ? (logFilePath != "" ? "On - " RegExReplace(logFilePath, ".*\\", "") : "Configured - log not open")
         : "Off - no active rules"
+    logInputStatus := logLinesProcessed " new lines processed"
+    if (lastLogLineAt > 0) {
+        logInputStatus .= " | last line " Format("{:.1f}", Max(0, A_TickCount - lastLogLineAt) / 1000) "s ago"
+    }
+    if (lastLogReadError != "") {
+        logInputStatus .= " | READ ERROR: " lastLogReadError
+    }
     combatStatus := "No recent incoming or outgoing damage"
     if (combatLastActivityAt > 0) {
         combatAge := Max(0, A_TickCount - combatLastActivityAt) / 1000
@@ -2637,6 +2695,7 @@ UpdateStatus() {
         "Input method: " modes[modeIndex] "`r`n`r`n"
         "WHEN... HAPPENS`r`n"
         "Log monitor: " logState "`r`n"
+        "Log input: " logInputStatus "`r`n"
         "Last log event: " lastLogEvent "`r`n"
         "Death: " whenDeathAction " | Mana: " whenManaAction " | Cannot see: " whenCannotSeeAction "`r`n"
         "Target acquisition: " (targetAcquisitionActive
