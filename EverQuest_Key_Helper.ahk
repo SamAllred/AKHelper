@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.4.5"
+appVersion := "1.4.6"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -1342,6 +1342,7 @@ PollEverQuestLog() {
 
 ProcessEverQuestLogLine(line) {
     global lastLogEvent, rotationActive, lastTargetConfirmedAt, pendingCannotSee
+    global targetAcquisitionActive
     global lastOutgoingPhysicalDamageAt
     global logEventSequence, lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
     global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
