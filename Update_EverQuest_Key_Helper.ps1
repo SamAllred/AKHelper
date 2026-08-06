@@ -10,7 +10,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repository = "SamAllred/EQHelper"
+$repository = "SamAllred/AKHelper"
 $releaseApi = "https://api.github.com/repos/$repository/releases/latest"
 $assetName = "EverQuest_Key_Helper_Update.zip"
 $logPath = Join-Path $InstallRoot "EverQuest_Key_Helper_Update.log"
