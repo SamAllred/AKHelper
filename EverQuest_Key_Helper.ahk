@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.5.6"
+appVersion := "1.5.8"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -127,11 +127,9 @@ whenRotationSeconds := Integer(ReadProfileSetting(currentProfile, "WhenRotationS
 if (whenRotationSeconds < 1 || whenRotationSeconds > 60) {
     whenRotationSeconds := 10
 }
-combatIdlePauseEnabled := Integer(ReadProfileSetting(currentProfile, "CombatIdlePauseEnabled", "0")) = 1
-combatIdleSeconds := Integer(ReadProfileSetting(currentProfile, "CombatIdleSeconds", "15"))
-if (combatIdleSeconds < 1 || combatIdleSeconds > 600) {
-    combatIdleSeconds := 15
-}
+; Start arms the sequence; combat activity controls whether it is executing.
+combatIdlePauseEnabled := true
+combatIdleSeconds := 5
 configuredLogFilePath := ReadProfileSetting(currentProfile, "LogFilePath", "")
 savedInputMethod := ReadProfileSetting(currentProfile, "InputMethod", "SendEvent")
 modeIndex := FindModeIndex(savedInputMethod)
@@ -390,11 +388,8 @@ LoadProfileIntoControls(profileName) {
     if (whenRotationSeconds < 1 || whenRotationSeconds > 60) {
         whenRotationSeconds := 10
     }
-    combatIdlePauseEnabled := Integer(ReadProfileSetting(profileName, "CombatIdlePauseEnabled", "0")) = 1
-    combatIdleSeconds := Integer(ReadProfileSetting(profileName, "CombatIdleSeconds", "15"))
-    if (combatIdleSeconds < 1 || combatIdleSeconds > 600) {
-        combatIdleSeconds := 15
-    }
+    combatIdlePauseEnabled := true
+    combatIdleSeconds := 5
     configuredLogFilePath := ReadProfileSetting(profileName, "LogFilePath", "")
     modeIndex := FindModeIndex(ReadProfileSetting(profileName, "InputMethod", "SendEvent"))
 
@@ -594,9 +589,11 @@ OpenWhenRules() {
 
         combatHeading := whenRulesGui.AddText("xm y+16", "Combat activity timeout")
         combatHeading.SetFont("s9 bold c374151", "Segoe UI")
-        combatIdlePauseCheckBox := whenRulesGui.AddCheckbox("xm y+8", "Pause the main sequence after no player combat activity for")
+        combatIdlePauseCheckBox := whenRulesGui.AddCheckbox("xm y+8 Checked Disabled", "Run the main sequence only while player combat is detected")
         combatIdleSecondsEdit := whenRulesGui.AddEdit("x+8 yp-3 w55 Number")
-        whenRulesGui.AddText("x+8 yp+3", "seconds")
+        combatIdleSecondsEdit.Value := 5
+        combatIdleSecondsEdit.Enabled := false
+        whenRulesGui.AddText("x+8 yp+3", "seconds without combat before pausing")
         whenRulesGui.AddText("xm y+3 w650 c64748B",
             "Incoming or outgoing player damage automatically resumes the sequence from its queued position.")
 
@@ -668,8 +665,8 @@ SaveWhenRules() {
     whenCannotSeeAction := whenCannotSeeActionDropDown.Text
     whenCannotSeeValue := Trim(whenCannotSeeValueEdit.Value)
     whenRotationSeconds := rotationSeconds
-    combatIdlePauseEnabled := combatIdlePauseCheckBox.Value = 1
-    combatIdleSeconds := enteredCombatIdleSeconds
+    combatIdlePauseEnabled := true
+    combatIdleSeconds := 5
 
     if (!ValidateWhenRuleValue(whenDeathAction, whenDeathValue)
         || !ValidateWhenRuleValue(whenManaAction, whenManaValue)
@@ -976,6 +973,7 @@ CleanupOnExit(*) {
 
 StartHelper() {
     global isRunning, seriesIndex, multipleResumeIndex, nextTickAt, lastMessage, sethMode
+    global combatIdlePaused, combatLastActivityAt, combatActiveWindowMs
 
     ; Starting controls only key execution. The log monitor has already been
     ; running since application launch, so preserve its combat/target history.
@@ -986,7 +984,9 @@ StartHelper() {
     isRunning := true
     seriesIndex := 1
     multipleResumeIndex := 1
-    nextTickAt := A_TickCount + GetIntervalMs()
+    combatIdlePaused := combatLastActivityAt <= 0
+        || A_TickCount - combatLastActivityAt > combatActiveWindowMs
+    nextTickAt := combatIdlePaused ? 0 : A_TickCount + GetIntervalMs()
     SetTimer Tick, 0
     SetTimer Tick, GetIntervalMs()
     if (sethMode) {
@@ -995,7 +995,9 @@ StartHelper() {
     } else {
         ClearSethScheduler()
     }
-    lastMessage := "Started."
+    lastMessage := combatIdlePaused
+        ? "Sequence armed; waiting for combat activity."
+        : "Sequence started during active combat."
     UpdateStatus()
 }
 
@@ -1466,6 +1468,9 @@ ProcessEverQuestLogLine(line) {
         lastLogEvent := "Insufficient mana detected"
         RunWhenRule("Mana", whenManaAction, whenManaValue)
     } else if (InStr(line, "You cannot see your target.")) {
+        ; A failed line-of-sight attack is itself current combat activity. Keep
+        ; the broad combat heartbeat alive while acquisition corrects facing.
+        RecordCombatActivity("Line-of-sight attack failure")
         if (targetAcquisitionActive) {
             ; The first visibility-loss event owns this acquisition cycle.
             ; Later copies must not move its timestamp or restart rotation.
@@ -1621,6 +1626,7 @@ ReleaseTargetLock(reason) {
 GetCombatMode() {
     global targetAcquisitionActive
     global combatLastActivityAt, combatActiveWindowMs
+    global lastAttackAttemptAt
 
     if (combatLastActivityAt <= 0) {
         return targetAcquisitionActive ? "Acquiring" : "Idle"
@@ -1628,7 +1634,12 @@ GetCombatMode() {
     if (targetAcquisitionActive) {
         return "Acquiring"
     }
-    return A_TickCount - combatLastActivityAt <= combatActiveWindowMs ? "Attacking" : "Idle"
+    if (A_TickCount - combatLastActivityAt > combatActiveWindowMs) {
+        return "Idle"
+    }
+    return lastAttackAttemptAt > 0 && A_TickCount - lastAttackAttemptAt <= combatActiveWindowMs
+        ? "Attacking"
+        : "In Combat"
 }
 
 GetCombatModeDescription(combatMode) {
@@ -1636,7 +1647,10 @@ GetCombatModeDescription(combatMode) {
         return "Combat detected; correcting line of sight"
     }
     if (combatMode = "Attacking") {
-        return "Combat detected; actively fighting or casting"
+        return "Outgoing attack or damage detected"
+    }
+    if (combatMode = "In Combat") {
+        return "Taking damage; no recent outgoing attack detected"
     }
     return "No combat detected"
 }
@@ -1738,12 +1752,13 @@ IsPlayerCombatActivityLine(line) {
 RecordCombatActivity(direction := "Combat activity") {
     global combatIdlePauseEnabled, combatLastActivityAt, combatIdlePaused
     global combatState, lastCombatDirection, lastMessage
+    global isRunning
 
     combatLastActivityAt := A_TickCount
     combatState := "In combat"
     lastCombatDirection := direction
     QueueStatusRefresh()
-    if (combatIdlePauseEnabled && combatIdlePaused) {
+    if (isRunning && combatIdlePaused) {
         combatIdlePaused := false
         lastMessage := "Combat activity detected; resuming queued sequence."
         UpdateStatus()
@@ -1770,14 +1785,13 @@ CheckCombatIdleTimeout() {
     if (!isRunning) {
         return
     }
-    if (!combatIdlePauseEnabled || combatIdlePaused
-        || elapsedMs < combatIdleSeconds * 1000) {
+    if (combatIdlePaused || elapsedMs < combatActiveWindowMs) {
         return
     }
 
     combatIdlePaused := true
-    combatState := "Paused after " combatIdleSeconds " seconds without combat"
-    lastMessage := "Combat activity timed out; main sequence paused."
+    combatState := "Paused after 5 seconds without combat"
+    lastMessage := "Combat ended; sequence remains armed and is waiting."
     UpdateStatus()
 }
 
@@ -2600,7 +2614,7 @@ UpdateStatus() {
 
     keys := GetConfiguredKeys()
     activeTitle := GetActiveWindowTitleSafe()
-    state := isRunning ? (combatIdlePaused ? "Paused - waiting for combat" : "Running") : "Stopped"
+    state := isRunning ? (combatIdlePaused ? "Armed - waiting for combat" : "Running in combat") : "Stopped"
     combatMode := GetCombatMode()
     combatModeDescription := GetCombatModeDescription(combatMode)
     nextAction := "Not scheduled"
