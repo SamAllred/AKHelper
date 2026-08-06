@@ -1,0 +1,37 @@
+name: Build release package
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag matches VERSION
+        shell: pwsh
+        run: |
+          $expected = "v$((Get-Content VERSION -Raw).Trim())"
+          if ($env:GITHUB_REF_NAME -ne $expected) {
+            throw "Tag $env:GITHUB_REF_NAME does not match VERSION ($expected)."
+          }
+
+      - name: Build updater package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release | Out-Null
+          Copy-Item EverQuest_Key_Helper.ahk, Update_EverQuest_Key_Helper.ps1, VERSION, EverQuest_Key_Helper_Final_Instructions.txt release
+          Compress-Archive -Path release\* -DestinationPath EverQuest_Key_Helper_Update.zip
+          Compress-Archive -Path EverQuest_Key_Helper.ahk, Update_EverQuest_Key_Helper.ps1, Install_EverQuest_Key_Helper.ps1, Start_EverQuest_Key_Helper.ps1, VERSION, EverQuest_Key_Helper_Final_Instructions.txt -DestinationPath EverQuest_Key_Helper_Full.zip
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME EverQuest_Key_Helper_Update.zip EverQuest_Key_Helper_Full.zip --generate-notes --title "EverQuest Key Helper $env:GITHUB_REF_NAME"

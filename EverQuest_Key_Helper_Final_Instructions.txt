@@ -1,0 +1,184 @@
+EverQuest Key Helper
+====================
+
+What it does
+------------
+This helper presses configured keys on a timer, but only when EverQuest Legends
+is the active window.
+
+It will not press keys while you are using another program.
+
+Optional Sleeper mode switches to EverQuest at each timer tick, presses the
+configured key sequence, and leaves EverQuest focused.
+
+
+Install
+-------
+1. Put these two files in the same folder:
+
+   Run_EverQuest_Key_Helper_Installer.bat
+   Install_EverQuest_Key_Helper.ps1
+
+2. Double-click:
+
+   Run_EverQuest_Key_Helper_Installer.bat
+
+3. If Windows asks for permission, allow it.
+
+4. The installer will:
+
+   - Install AutoHotkey v2 if needed
+   - Create this folder:
+
+     Documents\EverQuest Key Helper
+
+   - Create Desktop shortcuts named:
+
+     Start EverQuest Key Helper
+     Stop EverQuest Key Helper
+
+
+Using It
+--------
+After it is installed, use the Desktop shortcut:
+
+   Start EverQuest Key Helper
+
+When the helper is running, it shows the EverQuest Key Helper status window.
+No PowerShell window remains open.
+
+Click back into EverQuest Legends after starting the helper.
+
+Close the helper window, press Ctrl+Esc, or use the Stop shortcut to stop it.
+
+
+Configuring It
+--------------
+The helper window lets you set:
+
+Window title contains
+   Default: EverQuest Legends
+
+Sequence type
+   Multiple
+      Every interval tick presses every key in the list, using the configured
+      before/after delays for each position.
+
+      Example:
+      Keys = 1,2,3
+      Interval = 15
+      Delay after each key / position = 5,10,0
+
+      Result:
+      Every 15 seconds it presses 1, waits 5 seconds, presses 2, waits 10
+      seconds, then presses 3.
+
+   Interval Series
+      Every interval tick presses the next key in the list.
+
+      Example:
+      Keys = 1,2,3
+      Interval = 15
+
+      Result:
+      At 15 seconds it presses 1.
+      At 30 seconds it presses 2.
+      At 45 seconds it presses 3.
+      At 60 seconds it loops back to 1.
+
+Interval seconds
+   How often the timer ticks.
+
+Delay before each key / position
+Delay after each key / position
+   Enter one number to use the same delay for every key.
+
+   Example:
+      Keys = 7,8,9
+      Delay after each key / position = 5
+
+   Result:
+      Waits 5 seconds after 7, 5 seconds after 8, and 5 seconds after 9.
+
+   Enter a comma list to set a different delay for each key position.
+
+   Example:
+      Keys = 7,8,9
+      Delay after each key / position = 5,10,0
+
+   Result:
+      Waits 5 seconds after 7, 10 seconds after 8, and 0 seconds after 9.
+
+   Missing positions default to 0 seconds.
+
+Keys
+   Enter one key or multiple keys.
+
+   Examples:
+      7
+      1,2,3
+      F1,F2,7
+      Numpad7,8,9
+
+Sleeper mode
+   Leave this unchecked for the original behavior: keys are only sent while
+   EverQuest Legends is already active.
+
+   Check this to switch focus to EverQuest when the timer ticks. The helper
+   runs the configured sequence and leaves EverQuest focused afterward.
+
+   Check this to let each timer tick:
+
+   1. Remember the window you are currently using.
+   2. Switch focus to EverQuest Legends.
+   3. Press the configured key or sequence, including position delays.
+   4. Return focus to the window you were using.
+
+   EverQuest must be open, and the Window title contains setting must match it.
+
+Click Start after changing settings.
+Click Save if you want to save changes without starting.
+
+
+Controls
+--------
+F6
+   Test the current key configuration immediately.
+
+F7
+   Switch input method if the current method does not work.
+
+Ctrl+Esc
+   Stop the helper.
+
+You can also use the Desktop shortcut:
+
+   Stop EverQuest Key Helper
+
+
+If The Key Does Not Press
+-------------------------
+1. Click into EverQuest Legends.
+2. Press F6.
+3. If F6 does not work, press F7 once.
+4. Press F6 again.
+5. Repeat F7 and F6 until one method works.
+
+Once F6 works, leave that method selected and the automatic timer should work
+while EverQuest Legends is active.
+
+
+If It Still Does Not Work
+-------------------------
+If EverQuest Legends is running as Administrator, run the helper as Administrator
+too:
+
+1. Right-click the Desktop shortcut:
+
+   Start EverQuest Key Helper
+
+2. Click Properties.
+3. Click Advanced.
+4. Check Run as administrator.
+5. Click OK.
+6. Start the helper again.
