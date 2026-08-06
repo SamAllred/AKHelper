@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.4.6"
+appVersion := "1.4.7"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -1389,12 +1389,16 @@ ProcessEverQuestLogLine(line) {
         lastAttackAttemptAt := A_TickCount
         lastPhysicalAttackLogTimestamp := logTimestamp
         lastPhysicalAttackLogSequence := logEventSequence
+        targetLockActive := true
+        targetLockLastConfirmedAt := A_TickCount
         attemptedTarget := ExtractOutgoingAttackTarget(line)
         if (attemptedTarget != "") {
             attackTargetName := attemptedTarget
+            targetLockName := attemptedTarget
         }
         attackState := "Attacking - melee attempt detected"
-        lastLogEvent := attackState
+        targetLockState := "Target acquired - physical attack attempted"
+        lastLogEvent := targetLockState
         StopRotationAfterLaterPhysicalAttack(logTimestamp, logEventSequence,
             "Physical attack attempted after visibility loss; slow rotation stopped.")
         QueueStatusRefresh()
