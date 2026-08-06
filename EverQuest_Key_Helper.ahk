@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.5.2"
+appVersion := "1.5.3"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -1440,8 +1440,10 @@ ProcessEverQuestLogLine(line) {
             lastPhysicalAttackLogTimestamp := logTimestamp
             lastPhysicalAttackLogSequence := logEventSequence
         }
-        StopRotationAfterLaterOutgoingDamage(logTimestamp, logEventSequence,
-            "Outgoing damage confirmed target acquisition; rotation stopped.")
+        if (outgoingPhysicalDamage) {
+            StopRotationAfterLaterPhysicalAttack(logTimestamp, logEventSequence,
+                "Outgoing physical damage confirmed target acquisition; rotation stopped.")
+        }
         QueueStatusRefresh()
         return
     } else if (IsOutgoingAttackAttemptLine(line)) {
@@ -1459,6 +1461,8 @@ ProcessEverQuestLogLine(line) {
         attackState := "Attacking - melee attempt detected"
         targetLockState := "Target acquired - physical attack attempted"
         lastLogEvent := targetLockState
+        StopRotationAfterLaterPhysicalAttack(logTimestamp, logEventSequence,
+            "Outgoing physical attack attempt confirmed target acquisition; rotation stopped.")
         QueueStatusRefresh()
     } else if (IsPlayerCombatActivityLine(line)) {
         RecordCombatActivity("Incoming damage")
@@ -1515,7 +1519,7 @@ ExtractEverQuestLogTimestamp(line) {
         match[3] match[4] match[5])
 }
 
-StopRotationAfterLaterOutgoingDamage(logTimestamp, logSequence, reason) {
+StopRotationAfterLaterPhysicalAttack(logTimestamp, logSequence, reason) {
     global rotationActive, lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
 
     if (lastCannotSeeLogSequence <= 0 || logSequence <= lastCannotSeeLogSequence) {
@@ -1537,21 +1541,21 @@ StopRotationAfterLaterOutgoingDamage(logTimestamp, logSequence, reason) {
     return true
 }
 
-HasOutgoingDamageAfterVisibilityLoss() {
+HasPhysicalAttackAfterVisibilityLoss() {
     global lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
-    global lastOutgoingDamageLogTimestamp, lastOutgoingDamageLogSequence
+    global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
 
     if (lastCannotSeeLogSequence <= 0
-        || lastOutgoingDamageLogSequence <= lastCannotSeeLogSequence) {
+        || lastPhysicalAttackLogSequence <= lastCannotSeeLogSequence) {
         return false
     }
-    return !(lastOutgoingDamageLogTimestamp > 0 && lastCannotSeeLogTimestamp > 0
-        && lastOutgoingDamageLogTimestamp < lastCannotSeeLogTimestamp)
+    return !(lastPhysicalAttackLogTimestamp > 0 && lastCannotSeeLogTimestamp > 0
+        && lastPhysicalAttackLogTimestamp < lastCannotSeeLogTimestamp)
 }
 
 StopRotationAtCheckBoundary(reason) {
     global rotationActive
-    if (!rotationActive || !HasOutgoingDamageAfterVisibilityLoss()) {
+    if (!rotationActive || !HasPhysicalAttackAfterVisibilityLoss()) {
         return false
     }
     CompleteTargetAcquisitionPhase(reason)
@@ -1872,7 +1876,7 @@ SlowRotationTick() {
 
     if (!isRunning || !rotationActive) {
         if (targetAcquisitionActive) {
-            FailTargetAcquisitionPhase("Target acquisition stopped before outgoing damage was confirmed.")
+            FailTargetAcquisitionPhase("Target acquisition stopped before a physical attack was confirmed.")
         }
         StopSlowRotation("Slow rotation stopped.")
         return
@@ -1880,7 +1884,7 @@ SlowRotationTick() {
     ; This runs again when the five-second observation window expires, before
     ; another turn pulse can begin.
     if (StopRotationAtCheckBoundary(
-        "Outgoing damage detected during the observation window; rotation stopped.")) {
+        "Physical attack detected during the observation window; rotation stopped.")) {
         return
     }
     ; If acquisition interrupted a key that was already being sent, wait for
@@ -1930,12 +1934,12 @@ PerformSlowRotationPulse() {
     ; Check immediately after releasing the turn key. Log polling can observe
     ; an attack while the half-second key hold is sleeping.
     if (StopRotationAtCheckBoundary(
-        "Outgoing damage detected after turning; rotation stopped.")) {
+        "Physical attack detected after turning; rotation stopped.")) {
         return true
     }
-    ; Leave a five-second observation window for outgoing damage before
+    ; Leave a five-second observation window for a normal swing or shot before
     ; another half-second turn is allowed.
-    targetLockState := "Acquisition phase - observing for outgoing damage"
+    targetLockState := "Acquisition phase - observing 5s for a swing or shot"
     rotationNextActionAt := A_TickCount + 5000
     UpdateStatus()
     return true
