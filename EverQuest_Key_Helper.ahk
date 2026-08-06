@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.4.2"
+appVersion := "1.4.3"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -46,6 +46,8 @@ lastOutgoingPhysicalDamageAt := 0
 logEventSequence := 0
 lastCannotSeeLogTimestamp := 0
 lastCannotSeeLogSequence := 0
+lastPhysicalAttackLogTimestamp := 0
+lastPhysicalAttackLogSequence := 0
 pendingCannotSee := false
 targetLockActive := false
 targetLockName := ""
@@ -966,6 +968,8 @@ StartHelper() {
     global isRunning, seriesIndex, multipleResumeIndex, nextTickAt, lastMessage, sethMode
     global targetLockActive, targetLockName, targetLockState, targetLockLastConfirmedAt
     global lastAttackAttemptAt, attackState, attackTargetName
+    global lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
+    global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
 
     if (!SaveSettings()) {
         return
@@ -977,6 +981,10 @@ StartHelper() {
     targetLockState := "Seeking target"
     targetLockLastConfirmedAt := 0
     lastAttackAttemptAt := 0
+    lastCannotSeeLogTimestamp := 0
+    lastCannotSeeLogSequence := 0
+    lastPhysicalAttackLogTimestamp := 0
+    lastPhysicalAttackLogSequence := 0
     attackState := "Not attacking"
     attackTargetName := ""
     seriesIndex := 1
@@ -1331,6 +1339,7 @@ ProcessEverQuestLogLine(line) {
     global lastLogEvent, rotationActive, lastTargetConfirmedAt, pendingCannotSee
     global lastOutgoingPhysicalDamageAt
     global logEventSequence, lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
+    global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
     global targetLockActive, targetLockName, targetLockState, targetLockLastConfirmedAt
     global lastAttackAttemptAt, attackState, attackTargetName
     global whenDeathAction, whenDeathValue, whenManaAction, whenManaValue
@@ -1363,6 +1372,8 @@ ProcessEverQuestLogLine(line) {
         SetTimer DeferredCannotSeeCheck, 0
         if (outgoingPhysicalDamage) {
             lastOutgoingPhysicalDamageAt := A_TickCount
+            lastPhysicalAttackLogTimestamp := logTimestamp
+            lastPhysicalAttackLogSequence := logEventSequence
             StopRotationAfterLaterPhysicalAttack(logTimestamp, logEventSequence,
                 "Physical attack landed after visibility loss; slow rotation stopped.")
         }
@@ -1370,6 +1381,8 @@ ProcessEverQuestLogLine(line) {
         return
     } else if (IsOutgoingAttackAttemptLine(line)) {
         lastAttackAttemptAt := A_TickCount
+        lastPhysicalAttackLogTimestamp := logTimestamp
+        lastPhysicalAttackLogSequence := logEventSequence
         attemptedTarget := ExtractOutgoingAttackTarget(line)
         if (attemptedTarget != "") {
             attackTargetName := attemptedTarget
@@ -1447,6 +1460,27 @@ StopRotationAfterLaterPhysicalAttack(logTimestamp, logSequence, reason) {
     if (rotationActive) {
         StopSlowRotation(reason)
     }
+    return true
+}
+
+HasPhysicalAttackAfterVisibilityLoss() {
+    global lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
+    global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
+
+    if (lastCannotSeeLogSequence <= 0
+        || lastPhysicalAttackLogSequence <= lastCannotSeeLogSequence) {
+        return false
+    }
+    return !(lastPhysicalAttackLogTimestamp > 0 && lastCannotSeeLogTimestamp > 0
+        && lastPhysicalAttackLogTimestamp < lastCannotSeeLogTimestamp)
+}
+
+StopRotationAtCheckBoundary(reason) {
+    global rotationActive
+    if (!rotationActive || !HasPhysicalAttackAfterVisibilityLoss()) {
+        return false
+    }
+    StopSlowRotation(reason)
     return true
 }
 
@@ -1681,6 +1715,12 @@ SlowRotationTick() {
         StopSlowRotation("Slow rotation stopped.")
         return
     }
+    ; This runs again when the three-second observation window expires, before
+    ; another turn pulse can begin.
+    if (StopRotationAtCheckBoundary(
+        "Physical attack detected during the observation window; slow rotation stopped.")) {
+        return
+    }
     ; Rotation is secondary. A running or due main action always gets the boundary.
     timeUntilMainTick := nextTickAt - A_TickCount
     if (mainActionBusy || (timeUntilMainTick > 0 && timeUntilMainTick <= 150)) {
@@ -1719,6 +1759,12 @@ PerformSlowRotationPulse() {
         SendGameKeyState(rotationKey, false)
         rotationHoldingKey := false
         reactionBusy := false
+    }
+    ; Check immediately after releasing the turn key. Log polling can observe
+    ; an attack while the half-second key hold is sleeping.
+    if (StopRotationAtCheckBoundary(
+        "Physical attack detected after turning; slow rotation stopped.")) {
+        return true
     }
     ; Leave a three-second observation window for physical damage before
     ; another half-second turn is allowed.
