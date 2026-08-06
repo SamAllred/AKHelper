@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.6.1"
+appVersion := "1.6.2"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -982,6 +982,7 @@ CleanupOnExit(*) {
     SetTimer Tick, 0
     SetTimer SethScheduler, 0
     SetTimer SlowRotationTick, 0
+    SetTimer ConfirmCombatEndCommand, 0
     if (heldSethKey != "") {
         try SendGameKeyState(heldSethKey, false)
         heldSethKey := ""
@@ -1035,6 +1036,7 @@ StopHelper() {
     }
     sethActionBusy := false
     SetTimer Tick, 0
+    SetTimer ConfirmCombatEndCommand, 0
     ClearSethScheduler()
     if (rotationActive) {
         StopSlowRotation("Sequence stopped; log monitoring remains active.", false)
@@ -1829,6 +1831,32 @@ CheckCombatIdleTimeout() {
     lastMessage := "Combat ended; sequence remains armed and is waiting."
     ; Pause first so no queued target or attack key can undo /attack off.
     RunWhenRule("CombatEnd", whenCombatEndAction, whenCombatEndValue)
+    SetTimer ConfirmCombatEndCommand, -250
+    UpdateStatus()
+}
+
+ConfirmCombatEndCommand() {
+    global isRunning, combatIdlePaused, mainActionBusy, sethActionBusy
+    global reactionBusy, targetAcquisitionActive
+    global whenCombatEndAction, whenCombatEndValue, lastMessage
+
+    if (!isRunning || !combatIdlePaused || whenCombatEndAction != "Send Command") {
+        return
+    }
+    ; The combat timeout can interrupt a key action that was already underway.
+    ; Wait until every key-producing path has unwound before confirming the
+    ; configured combat-end command at the armed/waiting boundary.
+    if (mainActionBusy || sethActionBusy || reactionBusy || targetAcquisitionActive) {
+        SetTimer ConfirmCombatEndCommand, -100
+        return
+    }
+
+    if (!PrepareEverQuestForReaction()) {
+        SetTimer ConfirmCombatEndCommand, -250
+        return
+    }
+    SendEverQuestCommand(whenCombatEndValue)
+    lastMessage := "Sequence armed; combat-end command confirmed after all actions stopped."
     UpdateStatus()
 }
 
