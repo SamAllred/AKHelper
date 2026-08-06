@@ -1,12 +1,13 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 
-$installRoot = Join-Path $env:USERPROFILE "Documents\EverQuest Key Helper"
+$installRoot = Join-Path $env:USERPROFILE "Documents\AKHelper"
+$legacyInstallRoot = Join-Path $env:USERPROFILE "Documents\EverQuest Key Helper"
 $ahkScriptPath = Join-Path $installRoot "EverQuest_Key_Helper.ahk"
 $updaterScriptPath = Join-Path $installRoot "Update_EverQuest_Key_Helper.ps1"
 $startScriptPath = Join-Path $installRoot "Start_EverQuest_Key_Helper.ps1"
 $stopScriptPath = Join-Path $installRoot "Stop_EverQuest_Key_Helper.ps1"
-$desktopShortcutPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "Start EverQuest Key Helper.lnk"
-$desktopStopShortcutPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "Stop EverQuest Key Helper.lnk"
+$desktopShortcutPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "Start AKHelper.lnk"
+$desktopStopShortcutPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "Stop AKHelper.lnk"
 
 function Write-Step {
     param([string]$Message)
@@ -41,7 +42,7 @@ function Find-AutoHotkey {
     return $null
 }
 
-Write-Host "EverQuest Key Helper Installer" -ForegroundColor Green
+Write-Host "AKHelper Installer" -ForegroundColor Green
 Write-Host "This installs AutoHotkey v2 if needed, creates the helper script, and adds a Desktop shortcut."
 
 Write-Step "Checking for AutoHotkey"
@@ -75,7 +76,15 @@ Write-Host "AutoHotkey found at: $autoHotkeyPath" -ForegroundColor Green
 Write-Step "Creating helper folder"
 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
 
-Write-Step "Writing EverQuest helper script"
+$configName = "EverQuest_Key_Helper_Config.ini"
+$legacyConfigPath = Join-Path $legacyInstallRoot $configName
+$configPath = Join-Path $installRoot $configName
+if ((Test-Path -LiteralPath $legacyConfigPath) -and -not (Test-Path -LiteralPath $configPath)) {
+    Write-Step "Migrating existing AKHelper profiles and settings"
+    Copy-Item -Force -LiteralPath $legacyConfigPath -Destination $configPath
+}
+
+Write-Step "Writing AKHelper files"
 $templateAhkPath = Join-Path $PSScriptRoot "EverQuest_Key_Helper.ahk"
 if (-not (Test-Path -LiteralPath $templateAhkPath)) {
     Write-Host "Could not find EverQuest_Key_Helper.ahk next to the installer." -ForegroundColor Red
@@ -115,14 +124,14 @@ $processes = Get-CimInstance Win32_Process |
     }
 
 if (-not $processes) {
-    Write-Host "EverQuest Key Helper is not running."
+    Write-Host "AKHelper is not running."
     Start-Sleep -Seconds 2
     exit 0
 }
 
 foreach ($process in $processes) {
     Stop-Process -Id $process.ProcessId -Force
-    Write-Host "Stopped EverQuest Key Helper process $($process.ProcessId)."
+    Write-Host "Stopped AKHelper process $($process.ProcessId)."
 }
 
 Start-Sleep -Seconds 2
@@ -147,8 +156,8 @@ $stopShortcut.Save()
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
 Write-Host "Shortcuts were created on the Desktop:"
-Write-Host "  Start EverQuest Key Helper"
-Write-Host "  Stop EverQuest Key Helper"
+Write-Host "  Start AKHelper"
+Write-Host "  Stop AKHelper"
 Write-Host ""
 Write-Host "Controls:"
 Write-Host "  F6      Test key press now"
@@ -162,4 +171,3 @@ Write-Host ""
 Write-Host "The helper runs without a PowerShell window."
 Write-Host ""
 Read-Host "Press Enter to close this installer"
-

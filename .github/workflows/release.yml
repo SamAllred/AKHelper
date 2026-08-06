@@ -28,11 +28,12 @@ jobs:
         run: |
           mkdir release
           cp EverQuest_Key_Helper.ahk Update_EverQuest_Key_Helper.ps1 VERSION EverQuest_Key_Helper_Final_Instructions.txt release/
-          (cd release && zip -r ../EverQuest_Key_Helper_Update.zip .)
-          zip EverQuest_Key_Helper_Full.zip EverQuest_Key_Helper.ahk Update_EverQuest_Key_Helper.ps1 Install_EverQuest_Key_Helper.ps1 Start_EverQuest_Key_Helper.ps1 VERSION EverQuest_Key_Helper_Final_Instructions.txt
+          (cd release && zip -r ../AKHelper_Update.zip .)
+          cp AKHelper_Update.zip EverQuest_Key_Helper_Update.zip
+          zip AKHelper_Full.zip EverQuest_Key_Helper.ahk Update_EverQuest_Key_Helper.ps1 Install_EverQuest_Key_Helper.ps1 Start_EverQuest_Key_Helper.ps1 VERSION EverQuest_Key_Helper_Final_Instructions.txt
 
       - name: Create GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" EverQuest_Key_Helper_Update.zip EverQuest_Key_Helper_Full.zip --generate-notes --title "EverQuest Key Helper $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" AKHelper_Update.zip AKHelper_Full.zip EverQuest_Key_Helper_Update.zip --generate-notes --title "AKHelper $GITHUB_REF_NAME"

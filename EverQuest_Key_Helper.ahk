@@ -1,7 +1,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 
-; EverQuest Legends configurable key helper
+; AKHelper configurable key-sequence assistant
 ; Sequence Type:
 ;   Multiple        = every interval tick, press every key in the list using per-key delays
 ;   Interval Series = every interval tick, press the next key in the list
@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.4.3"
+appVersion := "1.4.4"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -128,7 +128,7 @@ configuredLogFilePath := ReadProfileSetting(currentProfile, "LogFilePath", "")
 savedInputMethod := ReadProfileSetting(currentProfile, "InputMethod", "SendEvent")
 modeIndex := FindModeIndex(savedInputMethod)
 
-helperGui := Gui("+AlwaysOnTop +ToolWindow", "EverQuest Key Helper v" appVersion)
+helperGui := Gui("+AlwaysOnTop +ToolWindow", "AKHelper v" appVersion)
 helperGui.SetFont("s9", "Segoe UI")
 
 helperGui.AddText("xm ym", "Profile")
@@ -138,7 +138,7 @@ newProfileButton := helperGui.AddButton("x+8 yp-1 w62", "New")
 renameProfileButton := helperGui.AddButton("x+6 w72", "Rename")
 deleteProfileButton := helperGui.AddButton("x+6 w62", "Delete")
 
-settingsGui := Gui("+Owner" helperGui.Hwnd " +AlwaysOnTop +ToolWindow", "EverQuest Key Helper v" appVersion " - Settings")
+settingsGui := Gui("+Owner" helperGui.Hwnd " +AlwaysOnTop +ToolWindow", "AKHelper v" appVersion " - Settings")
 settingsGui.SetFont("s9", "Segoe UI")
 settingsHeading := settingsGui.AddText("xm ym", "Profile configuration")
 settingsHeading.SetFont("s10 bold c374151", "Segoe UI")
@@ -431,11 +431,11 @@ CreateProfile() {
 
     profileName := Trim(result.Value)
     if (!ProfileNameIsValid(profileName)) {
-        MsgBox "Profile names cannot be blank or contain |, [, ], or =.", "EverQuest Key Helper"
+        MsgBox "Profile names cannot be blank or contain |, [, ], or =.", "AKHelper"
         return
     }
     if (ProfileExists(profileName)) {
-        MsgBox "A profile with that name already exists.", "EverQuest Key Helper"
+        MsgBox "A profile with that name already exists.", "AKHelper"
         return
     }
 
@@ -462,11 +462,11 @@ RenameProfile() {
         return
     }
     if (!ProfileNameIsValid(newName)) {
-        MsgBox "Profile names cannot be blank or contain |, [, ], or =.", "EverQuest Key Helper"
+        MsgBox "Profile names cannot be blank or contain |, [, ], or =.", "AKHelper"
         return
     }
     if (ProfileExists(newName)) {
-        MsgBox "A profile with that name already exists.", "EverQuest Key Helper"
+        MsgBox "A profile with that name already exists.", "AKHelper"
         return
     }
 
@@ -490,10 +490,10 @@ DeleteProfile() {
     global configPath, profileNames, currentProfile, isRunning, lastMessage
 
     if (profileNames.Length = 1) {
-        MsgBox "At least one profile must remain.", "EverQuest Key Helper"
+        MsgBox "At least one profile must remain.", "AKHelper"
         return
     }
-    if (MsgBox("Delete profile '" currentProfile "'?", "EverQuest Key Helper", "YesNo Icon!") != "Yes") {
+    if (MsgBox("Delete profile '" currentProfile "'?", "AKHelper", "YesNo Icon!") != "Yes") {
         return
     }
 
@@ -1036,31 +1036,31 @@ SaveSettings() {
 
     enteredInterval := Integer(Trim(intervalEdit.Value))
     if (enteredInterval < 1) {
-        MsgBox "Interval seconds must be 1 or greater.", "EverQuest Key Helper"
+        MsgBox "Interval seconds must be 1 or greater.", "AKHelper"
         return false
     }
 
     enteredBeforeDelayText := Trim(beforeKeyDelayEdit.Value)
     if (!ValidateDelayList(enteredBeforeDelayText)) {
-        MsgBox "Delay before each key must contain only numbers 0 or greater. Use one number or a comma list like 0,5,10.", "EverQuest Key Helper"
+        MsgBox "Delay before each key must contain only numbers 0 or greater. Use one number or a comma list like 0,5,10.", "AKHelper"
         return false
     }
 
     enteredAfterDelayText := Trim(afterKeyDelayEdit.Value)
     if (!ValidateDelayList(enteredAfterDelayText)) {
-        MsgBox "Delay after each key must contain only numbers 0 or greater. Use one number or a comma list like 5,10,0.", "EverQuest Key Helper"
+        MsgBox "Delay after each key must contain only numbers 0 or greater. Use one number or a comma list like 5,10,0.", "AKHelper"
         return false
     }
 
     parsedKeys := GetConfiguredKeys()
     if (parsedKeys.Length = 0) {
-        MsgBox "Enter at least one key.", "EverQuest Key Helper"
+        MsgBox "Enter at least one key.", "AKHelper"
         return false
     }
 
     enteredConnectorFontSize := Integer(Trim(connectorFontSizeEdit.Value))
     if (enteredConnectorFontSize < 6 || enteredConnectorFontSize > 14) {
-        MsgBox "Connector delay font size must be between 6 and 14.", "EverQuest Key Helper"
+        MsgBox "Connector delay font size must be between 6 and 14.", "AKHelper"
         return false
     }
 
@@ -2471,7 +2471,7 @@ UpdateStatus() {
 
     statusText.Value :=
     (
-        "EVERQUEST KEY HELPER v" appVersion "`r`n"
+        "AKHELPER v" appVersion "`r`n"
         "RUN STATUS`r`n"
         "State: " state "`r`n"
         "Next action in: " nextAction "`r`n"

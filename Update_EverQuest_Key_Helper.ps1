@@ -12,8 +12,8 @@ param(
 $ErrorActionPreference = "Stop"
 $repository = "SamAllred/AKHelper"
 $releaseApi = "https://api.github.com/repos/$repository/releases/latest"
-$assetName = "EverQuest_Key_Helper_Update.zip"
-$logPath = Join-Path $InstallRoot "EverQuest_Key_Helper_Update.log"
+$preferredAssetNames = @("AKHelper_Update.zip", "EverQuest_Key_Helper_Update.zip")
+$logPath = Join-Path $InstallRoot "AKHelper_Update.log"
 
 function Write-UpdateLog {
     param([string]$Message)
@@ -27,10 +27,10 @@ function Write-UpdateLog {
 function Show-UpdatePrompt {
     param([string]$Version)
     Add-Type -AssemblyName PresentationFramework
-    $message = "EverQuest Key Helper $Version is available.`n`nInstall it now? The helper will restart automatically."
+    $message = "AKHelper $Version is available.`n`nInstall it now? The helper will restart automatically."
     $result = [System.Windows.MessageBox]::Show(
         $message,
-        "EverQuest Key Helper Update",
+        "AKHelper Update",
         [System.Windows.MessageBoxButton]::YesNo,
         [System.Windows.MessageBoxImage]::Information
     )
@@ -39,7 +39,7 @@ function Show-UpdatePrompt {
 
 try {
     New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
-    $headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "EQHelper-Updater" }
+    $headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "AKHelper-Updater" }
     $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers -TimeoutSec 12
     $latestText = ([string]$release.tag_name).TrimStart("v", "V")
 
@@ -55,18 +55,26 @@ try {
         exit 0
     }
 
-    $asset = $release.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+    $asset = $null
+    foreach ($candidateName in $preferredAssetNames) {
+        $asset = $release.assets | Where-Object { $_.name -eq $candidateName } | Select-Object -First 1
+        if ($asset) {
+            break
+        }
+    }
     if (-not $asset) {
-        Write-UpdateLog "Release v$latestText does not contain $assetName."
+        Write-UpdateLog "Release v$latestText does not contain an AKHelper update package."
         exit 0
     }
+
+    $assetName = [string]$asset.name
 
     if (-not $AutoUpdate -and -not (Show-UpdatePrompt -Version $latestText)) {
         Write-UpdateLog "User postponed v$latestText."
         exit 0
     }
 
-    $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("EQHelperUpdate-" + [guid]::NewGuid())
+    $tempRoot = Join-Path ([IO.Path]::GetTempPath()) ("AKHelperUpdate-" + [guid]::NewGuid())
     $zipPath = Join-Path $tempRoot $assetName
     $stagePath = Join-Path $tempRoot "stage"
     New-Item -ItemType Directory -Force -Path $stagePath | Out-Null

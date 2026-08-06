@@ -1,4 +1,4 @@
-EverQuest Key Helper
+AKHelper
 ====================
 
 What it does
@@ -30,21 +30,21 @@ Install
    - Install AutoHotkey v2 if needed
    - Create this folder:
 
-     Documents\EverQuest Key Helper
+     Documents\AKHelper
 
    - Create Desktop shortcuts named:
 
-     Start EverQuest Key Helper
-     Stop EverQuest Key Helper
+     Start AKHelper
+     Stop AKHelper
 
 
 Using It
 --------
 After it is installed, use the Desktop shortcut:
 
-   Start EverQuest Key Helper
+   Start AKHelper
 
-When the helper is running, it shows the EverQuest Key Helper status window.
+When the helper is running, it shows the AKHelper status window.
 No PowerShell window remains open.
 
 Click back into EverQuest Legends after starting the helper.
@@ -153,7 +153,7 @@ Ctrl+Esc
 
 You can also use the Desktop shortcut:
 
-   Stop EverQuest Key Helper
+   Stop AKHelper
 
 
 If The Key Does Not Press
@@ -175,7 +175,7 @@ too:
 
 1. Right-click the Desktop shortcut:
 
-   Start EverQuest Key Helper
+   Start AKHelper
 
 2. Click Properties.
 3. Click Advanced.
