@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.4.8"
+appVersion := "1.5.0"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -33,6 +33,7 @@ reactionLastAt := Map()
 reactionBusy := false
 combatIdlePaused := false
 combatLastActivityAt := 0
+combatActiveWindowMs := 5000
 combatState := "Waiting for combat activity"
 lastCombatDirection := "None"
 rotationActive := false
@@ -47,6 +48,8 @@ lastOutgoingPhysicalDamageAt := 0
 logEventSequence := 0
 lastCannotSeeLogTimestamp := 0
 lastCannotSeeLogSequence := 0
+lastOutgoingDamageLogTimestamp := 0
+lastOutgoingDamageLogSequence := 0
 lastPhysicalAttackLogTimestamp := 0
 lastPhysicalAttackLogSequence := 0
 pendingCannotSee := false
@@ -971,6 +974,7 @@ StartHelper() {
     global targetAcquisitionActive
     global lastAttackAttemptAt, attackState, attackTargetName
     global lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
+    global lastOutgoingDamageLogTimestamp, lastOutgoingDamageLogSequence
     global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
 
     if (!SaveSettings()) {
@@ -986,6 +990,8 @@ StartHelper() {
     lastAttackAttemptAt := 0
     lastCannotSeeLogTimestamp := 0
     lastCannotSeeLogSequence := 0
+    lastOutgoingDamageLogTimestamp := 0
+    lastOutgoingDamageLogSequence := 0
     lastPhysicalAttackLogTimestamp := 0
     lastPhysicalAttackLogSequence := 0
     attackState := "Not attacking"
@@ -1345,6 +1351,7 @@ ProcessEverQuestLogLine(line) {
     global targetAcquisitionActive
     global lastOutgoingPhysicalDamageAt
     global logEventSequence, lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
+    global lastOutgoingDamageLogTimestamp, lastOutgoingDamageLogSequence
     global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
     global targetLockActive, targetLockName, targetLockState, targetLockLastConfirmedAt
     global lastAttackAttemptAt, attackState, attackTargetName
@@ -1362,6 +1369,8 @@ ProcessEverQuestLogLine(line) {
     if (outgoingDamage) {
         outgoingPhysicalDamage := IsOutgoingPhysicalDamageLine(line)
         RecordCombatActivity("Outgoing damage")
+        lastOutgoingDamageLogTimestamp := logTimestamp
+        lastOutgoingDamageLogSequence := logEventSequence
         lastTargetConfirmedAt := A_TickCount
         targetLockActive := true
         targetLockLastConfirmedAt := A_TickCount
@@ -1380,13 +1389,13 @@ ProcessEverQuestLogLine(line) {
             lastOutgoingPhysicalDamageAt := A_TickCount
             lastPhysicalAttackLogTimestamp := logTimestamp
             lastPhysicalAttackLogSequence := logEventSequence
-            StopRotationAfterLaterPhysicalAttack(logTimestamp, logEventSequence,
-                "Physical attack landed after visibility loss; slow rotation stopped.")
         }
+        StopRotationAfterLaterOutgoingDamage(logTimestamp, logEventSequence,
+            "Outgoing damage confirmed target acquisition; rotation stopped.")
         QueueStatusRefresh()
         return
     } else if (IsOutgoingAttackAttemptLine(line)) {
-        RecordCombatActivity("Outgoing physical attack")
+        RecordCombatActivity("Outgoing physical attack attempt")
         lastAttackAttemptAt := A_TickCount
         lastPhysicalAttackLogTimestamp := logTimestamp
         lastPhysicalAttackLogSequence := logEventSequence
@@ -1400,8 +1409,6 @@ ProcessEverQuestLogLine(line) {
         attackState := "Attacking - melee attempt detected"
         targetLockState := "Target acquired - physical attack attempted"
         lastLogEvent := targetLockState
-        StopRotationAfterLaterPhysicalAttack(logTimestamp, logEventSequence,
-            "Physical attack attempted after visibility loss; slow rotation stopped.")
         QueueStatusRefresh()
     } else if (IsPlayerCombatActivityLine(line)) {
         RecordCombatActivity("Incoming damage")
@@ -1420,14 +1427,16 @@ ProcessEverQuestLogLine(line) {
         RunWhenRule("Mana", whenManaAction, whenManaValue)
     } else if (InStr(line, "You cannot see your target.")) {
         if (targetAcquisitionActive) {
-            targetLockState := "Acquisition phase - visibility still blocked"
-            QueueStatusRefresh()
-        } else if (targetLockActive) {
+            ; The first visibility-loss event owns this acquisition cycle.
+            ; Later copies must not move its timestamp or restart rotation.
+            return
+        }
+        if (targetLockActive) {
             targetLockState := "Target retained - visibility lost"
             QueueStatusRefresh()
         }
-        ; This line establishes a new visibility-loss epoch. Only a physical
-        ; attack logged after this exact event may end the resulting rotation.
+        ; This line establishes a fixed visibility-loss epoch. Only outgoing
+        ; damage logged after this exact event may end the acquisition cycle.
         lastCannotSeeLogTimestamp := logTimestamp
         lastCannotSeeLogSequence := logEventSequence
         pendingCannotSee := false
@@ -1456,7 +1465,7 @@ ExtractEverQuestLogTimestamp(line) {
         match[3] match[4] match[5])
 }
 
-StopRotationAfterLaterPhysicalAttack(logTimestamp, logSequence, reason) {
+StopRotationAfterLaterOutgoingDamage(logTimestamp, logSequence, reason) {
     global rotationActive, lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
 
     if (lastCannotSeeLogSequence <= 0 || logSequence <= lastCannotSeeLogSequence) {
@@ -1478,21 +1487,21 @@ StopRotationAfterLaterPhysicalAttack(logTimestamp, logSequence, reason) {
     return true
 }
 
-HasPhysicalAttackAfterVisibilityLoss() {
+HasOutgoingDamageAfterVisibilityLoss() {
     global lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
-    global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
+    global lastOutgoingDamageLogTimestamp, lastOutgoingDamageLogSequence
 
     if (lastCannotSeeLogSequence <= 0
-        || lastPhysicalAttackLogSequence <= lastCannotSeeLogSequence) {
+        || lastOutgoingDamageLogSequence <= lastCannotSeeLogSequence) {
         return false
     }
-    return !(lastPhysicalAttackLogTimestamp > 0 && lastCannotSeeLogTimestamp > 0
-        && lastPhysicalAttackLogTimestamp < lastCannotSeeLogTimestamp)
+    return !(lastOutgoingDamageLogTimestamp > 0 && lastCannotSeeLogTimestamp > 0
+        && lastOutgoingDamageLogTimestamp < lastCannotSeeLogTimestamp)
 }
 
 StopRotationAtCheckBoundary(reason) {
     global rotationActive
-    if (!rotationActive || !HasPhysicalAttackAfterVisibilityLoss()) {
+    if (!rotationActive || !HasOutgoingDamageAfterVisibilityLoss()) {
         return false
     }
     CompleteTargetAcquisitionPhase(reason)
@@ -1572,7 +1581,7 @@ ReleaseTargetLock(reason) {
 
 GetCombatMode() {
     global isRunning, targetAcquisitionActive
-    global combatLastActivityAt, combatIdleSeconds
+    global combatLastActivityAt, combatActiveWindowMs
 
     if (!isRunning || combatLastActivityAt <= 0) {
         return targetAcquisitionActive ? "Acquiring" : "Idle"
@@ -1580,8 +1589,7 @@ GetCombatMode() {
     if (targetAcquisitionActive) {
         return "Acquiring"
     }
-    recentWindowMs := Max(1, combatIdleSeconds) * 1000
-    return A_TickCount - combatLastActivityAt <= recentWindowMs ? "Attacking" : "Idle"
+    return A_TickCount - combatLastActivityAt <= combatActiveWindowMs ? "Attacking" : "Idle"
 }
 
 GetCombatModeDescription(combatMode) {
@@ -1676,6 +1684,8 @@ IsPlayerCombatActivityLine(line) {
     return RegExMatch(line,
         "i\] .+ (hits|slashes|crushes|pierces|punches|kicks|bashes|bites|claws) YOU for [0-9]+")
         || RegExMatch(line, "i\] .+ hit you for [0-9]+ .+damage")
+        || RegExMatch(line, "i\] You (?:have|has) taken [0-9]+ .+damage")
+        || RegExMatch(line, "i\] You (?:are|were) hit by .+ for [0-9]+ .+damage")
 }
 
 RecordCombatActivity(direction := "Combat activity") {
@@ -1696,20 +1706,20 @@ RecordCombatActivity(direction := "Combat activity") {
 
 CheckCombatIdleTimeout() {
     global isRunning, combatIdlePauseEnabled, combatIdleSeconds
+    global combatActiveWindowMs
     global combatLastActivityAt, combatIdlePaused, combatState, lastMessage
 
     if (!isRunning || combatLastActivityAt <= 0) {
         return
     }
-    if (A_TickCount - combatLastActivityAt < combatIdleSeconds * 1000) {
-        return
-    }
+    elapsedMs := A_TickCount - combatLastActivityAt
 
-    if (combatState != "Idle") {
+    if (elapsedMs >= combatActiveWindowMs && combatState != "Idle") {
         combatState := "Idle"
         QueueStatusRefresh()
     }
-    if (!combatIdlePauseEnabled || combatIdlePaused) {
+    if (!combatIdlePauseEnabled || combatIdlePaused
+        || elapsedMs < combatIdleSeconds * 1000) {
         return
     }
 
@@ -1813,15 +1823,15 @@ SlowRotationTick() {
 
     if (!isRunning || !rotationActive) {
         if (targetAcquisitionActive) {
-            FailTargetAcquisitionPhase("Target acquisition stopped before a physical attack was confirmed.")
+            FailTargetAcquisitionPhase("Target acquisition stopped before outgoing damage was confirmed.")
         }
         StopSlowRotation("Slow rotation stopped.")
         return
     }
-    ; This runs again when the three-second observation window expires, before
+    ; This runs again when the five-second observation window expires, before
     ; another turn pulse can begin.
     if (StopRotationAtCheckBoundary(
-        "Physical attack detected during the observation window; slow rotation stopped.")) {
+        "Outgoing damage detected during the observation window; rotation stopped.")) {
         return
     }
     ; If acquisition interrupted a key that was already being sent, wait for
@@ -1871,13 +1881,13 @@ PerformSlowRotationPulse() {
     ; Check immediately after releasing the turn key. Log polling can observe
     ; an attack while the half-second key hold is sleeping.
     if (StopRotationAtCheckBoundary(
-        "Physical attack detected after turning; slow rotation stopped.")) {
+        "Outgoing damage detected after turning; rotation stopped.")) {
         return true
     }
-    ; Leave a three-second observation window for physical damage before
+    ; Leave a five-second observation window for outgoing damage before
     ; another half-second turn is allowed.
-    targetLockState := "Acquisition phase - observing for a physical attack"
-    rotationNextActionAt := A_TickCount + 3000
+    targetLockState := "Acquisition phase - observing for outgoing damage"
+    rotationNextActionAt := A_TickCount + 5000
     UpdateStatus()
     return true
 }
@@ -2527,7 +2537,7 @@ UpdateStatus() {
     global logFilePath, lastLogEvent, rotationActive
     global whenDeathAction, whenManaAction, whenCannotSeeAction
     global combatIdlePauseEnabled, combatIdleSeconds, combatIdlePaused
-    global combatLastActivityAt, combatState
+    global combatLastActivityAt, combatActiveWindowMs, combatState
     global lastCombatDirection
     global targetLockActive, targetLockName, targetLockState, targetLockLastConfirmedAt
     global targetAcquisitionActive
@@ -2570,7 +2580,7 @@ UpdateStatus() {
     combatStatus := "No recent incoming or outgoing damage"
     if (combatLastActivityAt > 0) {
         combatAge := Max(0, A_TickCount - combatLastActivityAt) / 1000
-        combatStatus := combatAge <= 10
+        combatStatus := combatAge <= combatActiveWindowMs / 1000
             ? "In combat - " lastCombatDirection " " Format("{:.1f}", combatAge) "s ago"
             : "No recent damage - last " lastCombatDirection " " Format("{:.1f}", combatAge) "s ago"
         if (combatIdlePauseEnabled) {
@@ -2631,7 +2641,7 @@ UpdateStatus() {
         "Last log event: " lastLogEvent "`r`n"
         "Death: " whenDeathAction " | Mana: " whenManaAction " | Cannot see: " whenCannotSeeAction "`r`n"
         "Target acquisition: " (targetAcquisitionActive
-            ? (rotationActive ? "Active - turn 0.5s, observe 3s, repeat" : "Starting")
+            ? (rotationActive ? "Active - turn 0.5s, observe 5s, repeat" : "Starting")
             : "Inactive") "`r`n`r`n"
         "COMBAT ACTIVITY`r`n"
         "Idle pause: " combatStatus "`r`n`r`n"
