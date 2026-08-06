@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.4.4"
+appVersion := "1.4.5"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -41,6 +41,7 @@ rotationKey := "Left"
 rotationNextActionAt := 0
 rotationStartedAt := 0
 rotationHoldingKey := false
+targetAcquisitionActive := false
 lastTargetConfirmedAt := 0
 lastOutgoingPhysicalDamageAt := 0
 logEventSequence := 0
@@ -967,6 +968,7 @@ CleanupOnExit(*) {
 StartHelper() {
     global isRunning, seriesIndex, multipleResumeIndex, nextTickAt, lastMessage, sethMode
     global targetLockActive, targetLockName, targetLockState, targetLockLastConfirmedAt
+    global targetAcquisitionActive
     global lastAttackAttemptAt, attackState, attackTargetName
     global lastCannotSeeLogTimestamp, lastCannotSeeLogSequence
     global lastPhysicalAttackLogTimestamp, lastPhysicalAttackLogSequence
@@ -977,6 +979,7 @@ StartHelper() {
 
     isRunning := true
     targetLockActive := false
+    targetAcquisitionActive := false
     targetLockName := ""
     targetLockState := "Seeking target"
     targetLockLastConfirmedAt := 0
@@ -1292,6 +1295,7 @@ StartLogMonitor() {
 
 StopLogMonitor() {
     global logFileHandle, logTextBuffer, rotationActive, reactionBusy, pendingCannotSee
+    global targetAcquisitionActive
     global combatIdlePaused, combatLastActivityAt, combatState
 
     SetTimer PollEverQuestLog, 0
@@ -1303,6 +1307,7 @@ StopLogMonitor() {
     logFileHandle := ""
     logTextBuffer := ""
     rotationActive := false
+    targetAcquisitionActive := false
     reactionBusy := false
     pendingCannotSee := false
     combatIdlePaused := false
@@ -1408,7 +1413,10 @@ ProcessEverQuestLogLine(line) {
         lastLogEvent := "Insufficient mana detected"
         RunWhenRule("Mana", whenManaAction, whenManaValue)
     } else if (InStr(line, "You cannot see your target.")) {
-        if (targetLockActive) {
+        if (targetAcquisitionActive) {
+            targetLockState := "Acquisition phase - visibility still blocked"
+            QueueStatusRefresh()
+        } else if (targetLockActive) {
             targetLockState := "Target retained - visibility lost"
             QueueStatusRefresh()
         }
@@ -1457,6 +1465,7 @@ StopRotationAfterLaterPhysicalAttack(logTimestamp, logSequence, reason) {
 
     lastCannotSeeLogTimestamp := 0
     lastCannotSeeLogSequence := 0
+    CompleteTargetAcquisitionPhase(reason)
     if (rotationActive) {
         StopSlowRotation(reason)
     }
@@ -1480,8 +1489,48 @@ StopRotationAtCheckBoundary(reason) {
     if (!rotationActive || !HasPhysicalAttackAfterVisibilityLoss()) {
         return false
     }
+    CompleteTargetAcquisitionPhase(reason)
     StopSlowRotation(reason)
     return true
+}
+
+BeginTargetAcquisitionPhase() {
+    global targetAcquisitionActive, targetLockActive, targetLockState
+    global attackState, lastMessage
+
+    targetAcquisitionActive := true
+    targetLockActive := false
+    targetLockState := "Acquisition phase - correcting facing"
+    attackState := "Acquiring target - waiting for a physical attack"
+    lastMessage := "Target acquisition started after visibility loss."
+    UpdateStatus()
+}
+
+CompleteTargetAcquisitionPhase(reason) {
+    global targetAcquisitionActive, targetLockActive, targetLockState
+    global targetLockLastConfirmedAt, attackState, lastMessage, nextTickAt
+
+    targetAcquisitionActive := false
+    targetLockActive := true
+    targetLockLastConfirmedAt := A_TickCount
+    targetLockState := "Target acquired - physical attack confirmed"
+    attackState := "Attacking - acquisition confirmed"
+    lastMessage := reason
+    nextTickAt := A_TickCount + 250
+    QueueStatusRefresh()
+}
+
+FailTargetAcquisitionPhase(reason) {
+    global targetAcquisitionActive, targetLockActive, targetLockState
+    global attackState, lastMessage, nextTickAt
+
+    targetAcquisitionActive := false
+    targetLockActive := false
+    targetLockState := "Acquisition ended - seeking target"
+    attackState := "Not attacking"
+    lastMessage := reason
+    nextTickAt := A_TickCount + GetIntervalMs()
+    QueueStatusRefresh()
 }
 
 QueueStatusRefresh() {
@@ -1493,6 +1542,12 @@ QueueStatusRefresh() {
 ReleaseTargetLock(reason) {
     global targetLockActive, targetLockName, targetLockState, lastLogEvent
     global lastAttackAttemptAt, attackState, attackTargetName
+    global targetAcquisitionActive, rotationActive
+
+    targetAcquisitionActive := false
+    if (rotationActive) {
+        StopSlowRotation(reason, false)
+    }
 
     targetLockActive := false
     targetLockName := ""
@@ -1696,6 +1751,7 @@ StartSlowRotation(keyName) {
     global rotationNextActionAt, rotationStartedAt
 
     StopSlowRotation("", false)
+    BeginTargetAcquisitionPhase()
     rotationKey := keyName
     ; Start the safety clock immediately so focus or scheduling problems can
     ; never leave the helper permanently trapped in rotation mode.
@@ -1710,8 +1766,12 @@ StartSlowRotation(keyName) {
 SlowRotationTick() {
     global isRunning, rotationActive, rotationDeadline, rotationKey
     global mainActionBusy, nextTickAt, reactionBusy
+    global targetAcquisitionActive
 
     if (!isRunning || !rotationActive) {
+        if (targetAcquisitionActive) {
+            FailTargetAcquisitionPhase("Target acquisition stopped before a physical attack was confirmed.")
+        }
         StopSlowRotation("Slow rotation stopped.")
         return
     }
@@ -1721,7 +1781,8 @@ SlowRotationTick() {
         "Physical attack detected during the observation window; slow rotation stopped.")) {
         return
     }
-    ; Rotation is secondary. A running or due main action always gets the boundary.
+    ; If acquisition interrupted a key that was already being sent, wait for
+    ; that single key boundary. No new main-sequence work starts during this phase.
     timeUntilMainTick := nextTickAt - A_TickCount
     if (mainActionBusy || (timeUntilMainTick > 0 && timeUntilMainTick <= 150)) {
         return
@@ -1733,12 +1794,13 @@ SlowRotationTick() {
 PerformSlowRotationPulse() {
     global isRunning, rotationActive, rotationDeadline, rotationKey
     global whenRotationSeconds, reactionBusy
-    global rotationNextActionAt, rotationHoldingKey
+    global rotationNextActionAt, rotationHoldingKey, targetLockState
 
     if (!isRunning || !rotationActive) {
         return false
     }
     if (A_TickCount >= rotationDeadline) {
+        FailTargetAcquisitionPhase("Target acquisition reached its safety timeout.")
         StopSlowRotation("Slow rotation reached its safety timeout.")
         return false
     }
@@ -1746,11 +1808,14 @@ PerformSlowRotationPulse() {
         return false
     }
     if (!PrepareEverQuestForReaction()) {
+        FailTargetAcquisitionPhase("Target acquisition stopped because EverQuest is not active.")
         StopSlowRotation("Slow rotation stopped because EverQuest is not active.")
         return false
     }
 
     reactionBusy := true
+    targetLockState := "Acquisition phase - turning " rotationKey
+    UpdateStatus()
     try {
         SendGameKeyState(rotationKey, true)
         rotationHoldingKey := true
@@ -1768,7 +1833,9 @@ PerformSlowRotationPulse() {
     }
     ; Leave a three-second observation window for physical damage before
     ; another half-second turn is allowed.
+    targetLockState := "Acquisition phase - observing for a physical attack"
     rotationNextActionAt := A_TickCount + 3000
+    UpdateStatus()
     return true
 }
 
@@ -1815,13 +1882,15 @@ Tick() {
     global isRunning, sequenceType, seriesIndex, nextTickAt
     global multipleResumeIndex, lastMessage, sleeperMode, windowTitle
     global mainActionBusy, sethActionBusy, reactionBusy, rotationActive, rotationHoldingKey, rotationKey, combatIdlePaused
+    global targetAcquisitionActive
 
-    if (!isRunning || sethActionBusy || (reactionBusy && !rotationActive) || combatIdlePaused) {
+    if (!isRunning || sethActionBusy || (reactionBusy && !rotationActive)
+        || combatIdlePaused || targetAcquisitionActive) {
         return
     }
 
-    ; The main sequence always wins. If a background turn hold is currently in
-    ; progress, release it before sending the configured sequence.
+    ; A newly detected acquisition phase may interrupt a key delay. Release any
+    ; active turn hold before continuing normal work.
     if (rotationActive && rotationHoldingKey) {
         try SendGameKeyState(rotationKey, false)
         rotationHoldingKey := false
@@ -1883,6 +1952,12 @@ Tick() {
             SendConfiguredKey(key, positionIndex)
             sent.Push(key)
             multipleResumeIndex := positionIndex + 1
+            if (targetAcquisitionActive) {
+                mainActionBusy := false
+                lastMessage := "Main sequence paused for target acquisition."
+                UpdateStatus()
+                return
+            }
             if (combatIdlePaused) {
                 mainActionBusy := false
                 nextTickAt := 0
@@ -1919,6 +1994,12 @@ Tick() {
             }
         }
         SendConfiguredKey(key, seriesIndex)
+        if (targetAcquisitionActive) {
+            mainActionBusy := false
+            lastMessage := "Main sequence paused for target acquisition."
+            UpdateStatus()
+            return
+        }
         if (combatIdlePaused) {
             seriesIndex += 1
             mainActionBusy := false
@@ -2406,15 +2487,22 @@ UpdateStatus() {
     global combatLastActivityAt, combatState
     global lastCombatDirection
     global targetLockActive, targetLockName, targetLockState, targetLockLastConfirmedAt
+    global targetAcquisitionActive
     global lastAttackAttemptAt, attackState, attackTargetName
 
     keys := GetConfiguredKeys()
     activeTitle := GetActiveWindowTitleSafe()
-    state := isRunning ? (combatIdlePaused ? "Paused - waiting for combat" : "Running") : "Stopped"
+    state := isRunning
+        ? (targetAcquisitionActive ? "Target acquisition"
+            : (combatIdlePaused ? "Paused - waiting for combat" : "Running"))
+        : "Stopped"
     nextAction := "Not scheduled"
     if (isRunning && nextTickAt > 0) {
         remainingSeconds := Max(0, nextTickAt - A_TickCount) / 1000
         nextAction := Format("{:.1f} seconds", remainingSeconds)
+    }
+    if (targetAcquisitionActive) {
+        nextAction := "Main sequence paused until target acquisition finishes"
     }
     sleeperState := sleeperMode
         ? "On - EverQuest will be brought forward and left focused"
@@ -2477,7 +2565,8 @@ UpdateStatus() {
         "Next action in: " nextAction "`r`n"
         "Last event: " lastMessage "`r`n`r`n"
         "TARGET AND COMBAT`r`n"
-        "Target: " (targetLockActive ? "Acquired" : "Seeking") "`r`n"
+        "Target: " (targetAcquisitionActive ? "Acquiring"
+            : (targetLockActive ? "Acquired" : "Seeking")) "`r`n"
         "Target name: " targetNameText "`r`n"
         "Target state: " targetLockState "`r`n"
         "Last outgoing damage: " targetAgeText "`r`n"
@@ -2500,7 +2589,9 @@ UpdateStatus() {
         "Log monitor: " logState "`r`n"
         "Last log event: " lastLogEvent "`r`n"
         "Death: " whenDeathAction " | Mana: " whenManaAction " | Cannot see: " whenCannotSeeAction "`r`n"
-        "Slow rotation: " (rotationActive ? "Active - hold 0.5s, check physical damage for 3s" : "Inactive") "`r`n`r`n"
+        "Target acquisition: " (targetAcquisitionActive
+            ? (rotationActive ? "Active - turn 0.5s, observe 3s, repeat" : "Starting")
+            : "Inactive") "`r`n`r`n"
         "COMBAT ACTIVITY`r`n"
         "Idle pause: " combatStatus "`r`n`r`n"
         "SHORTCUTS`r`n"
