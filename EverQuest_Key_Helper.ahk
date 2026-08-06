@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.5.5"
+appVersion := "1.5.6"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -1643,11 +1643,11 @@ GetCombatModeDescription(combatMode) {
 
 IsOutgoingAttackAttemptLine(line) {
     return IsOutgoingDamageLine(line)
-        || RegExMatch(line, "i\] You try to (?:hit|slash|crush|pierce|punch|kick|bash|reave|frenzy on) .+?, but .+!$")
+        || RegExMatch(line, "i)\] You try to (?:hit|slash|crush|pierce|punch|kick|bash|reave|frenzy on) .+?, but .+!$")
 }
 
 ExtractOutgoingAttackTarget(line) {
-    if (RegExMatch(line, "i\] You try to (?:hit|slash|crush|pierce|punch|kick|bash|reave|frenzy on) (.+?), but ", &match)) {
+    if (RegExMatch(line, "i)\] You try to (?:hit|slash|crush|pierce|punch|kick|bash|reave|frenzy on) (.+?), but ", &match)) {
         return Trim(match[1], " `t.,!")
     }
     return ExtractOutgoingDamageTarget(line)
@@ -1655,11 +1655,11 @@ ExtractOutgoingAttackTarget(line) {
 
 ExtractOutgoingDamageTarget(line) {
     patterns := [
-        "i\] You (?:hit|slash|crush|pierce|punch|kick|bash|reave) (.+?) for [0-9]+",
-        "i\] You frenzy on (.+?) for [0-9]+",
-        "i\] Your .+ (?:hits|slashes|crushes|pierces|punches|kicks|bashes|bites|claws) (.+?) for [0-9]+",
-        "i\] (.+?) (?:has|have) taken [0-9]+ .+damage from your .+",
-        "i\] (.+?) (?:is|are) .+ by YOUR .+ for [0-9]+ .+damage"
+        "i)\] You (?:hit|slash|crush|pierce|punch|kick|bash|reave) (.+?) for [0-9]+",
+        "i)\] You frenzy on (.+?) for [0-9]+",
+        "i)\] Your .+ (?:hits|slashes|crushes|pierces|punches|kicks|bashes|bites|claws) (.+?) for [0-9]+",
+        "i)\] (.+?) (?:has|have) taken [0-9]+ .+damage from your .+",
+        "i)\] (.+?) (?:is|are) .+ by YOUR .+ for [0-9]+ .+damage"
     ]
     for pattern in patterns {
         if (RegExMatch(line, pattern, &match)) {
@@ -1702,10 +1702,10 @@ IsOutgoingDamageLine(line) {
     ; Match the damage sentence, rather than a fixed list of attack verbs. EQ
     ; adds verbs over time, and an unknown verb must not make combat look idle.
     return RegExMatch(line,
-        "i\] You .+ for [0-9]+(?: \([0-9]+\))? points? of (?:[a-z-]+ )?damage")
-        || RegExMatch(line, "i\] Your .+ (hits|slashes|crushes|pierces|punches|kicks|bashes|bites|claws) .+ for [0-9]+")
-        || RegExMatch(line, "i\] .+ (has|have) taken [0-9]+ .+damage from your .+")
-        || RegExMatch(line, "i\] .+ (is|are) .+ by YOUR .+ for [0-9]+ .+damage")
+        "i)\] You (?!are |were |have |has ).+ for [0-9]+(?: \([0-9]+\))? points? of (?:[a-z-]+ )?damage")
+        || RegExMatch(line, "i)\] Your .+ (hits|slashes|crushes|pierces|punches|kicks|bashes|bites|claws) .+ for [0-9]+")
+        || RegExMatch(line, "i)\] .+ (has|have) taken [0-9]+ .+damage from your .+")
+        || RegExMatch(line, "i)\] .+ (is|are) .+ by YOUR .+ for [0-9]+ .+damage")
 }
 
 IsOutgoingPhysicalDamageLine(line) {
@@ -1713,9 +1713,9 @@ IsOutgoingPhysicalDamageLine(line) {
     ; Any player-originated physical line ends with plain "points of damage",
     ; regardless of the attack verb or whether it came from a weapon/ability.
     return RegExMatch(line,
-        "i\] You .+ for [0-9]+ points? of damage(?:\.| \(.+\))?$")
+        "i)\] You .+ for [0-9]+ points? of damage(?:\.| \(.+\))?$")
         || RegExMatch(line,
-            "i\] Your .+ .+ for [0-9]+ points? of damage(?:\.| \(.+\))?$")
+            "i)\] Your .+ .+ for [0-9]+ points? of damage(?:\.| \(.+\))?$")
 }
 
 IsPlayerCombatActivityLine(line) {
@@ -1726,10 +1726,12 @@ IsPlayerCombatActivityLine(line) {
     ; Matching the complete damage form catches hits, cleaves, kicks, and any
     ; other attack verb without maintaining an incomplete verb allow-list.
     return RegExMatch(line,
-        "i\] .+ YOU for [0-9]+(?: \([0-9]+\))? points? of (?:[a-z-]+ )?damage")
-        || RegExMatch(line, "i\] .+ hit you for [0-9]+ .+damage")
-        || RegExMatch(line, "i\] You (?:have|has) taken [0-9]+ .+damage")
-        || RegExMatch(line, "i\] You (?:are|were) hit by .+ for [0-9]+ .+damage")
+        "i)\] .+ YOU for [0-9]+(?: \([0-9]+\))? points? of (?:[a-z-]+ )?damage")
+        || RegExMatch(line,
+            "i)\] YOU .+ by .+ for [0-9]+(?: \([0-9]+\))? points? of (?:[a-z-]+ )?damage")
+        || RegExMatch(line, "i)\] .+ hit you for [0-9]+ .+damage")
+        || RegExMatch(line, "i)\] You (?:have|has) taken [0-9]+ .+damage")
+        || RegExMatch(line, "i)\] You (?:are|were) hit by .+ for [0-9]+ .+damage")
         || InStr(line, "] You have run out of ammo!")
 }
 
