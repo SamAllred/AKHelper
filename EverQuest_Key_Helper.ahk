@@ -12,7 +12,7 @@
 SetTitleMatchMode 2
 OnExit CleanupOnExit
 
-appVersion := "1.3.8"
+appVersion := "1.3.9"
 parentPid := A_Args.Length >= 1 ? A_Args[1] : ""
 modes := ["SendEvent", "SendInput", "ControlSend", "PostMessage"]
 modeIndex := 1
@@ -238,7 +238,7 @@ CheckForApplicationUpdate() {
         . QuoteCommandArgument(updaterPath)
         . " -CurrentVersion " . QuoteCommandArgument(appVersion)
         . " -InstallRoot " . QuoteCommandArgument(A_ScriptDir)
-        . " -HelperPid " . A_Pid
+        . " -HelperPid " . ProcessExist()
 
     try Run(command, A_ScriptDir, "Hide")
 }
