@@ -10,28 +10,29 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Verify tag matches VERSION
-        shell: pwsh
+        shell: bash
         run: |
-          $expected = "v$((Get-Content VERSION -Raw).Trim())"
-          if ($env:GITHUB_REF_NAME -ne $expected) {
-            throw "Tag $env:GITHUB_REF_NAME does not match VERSION ($expected)."
-          }
+          expected="v$(tr -d '\r\n ' < VERSION)"
+          if [ "$GITHUB_REF_NAME" != "$expected" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)."
+            exit 1
+          fi
 
       - name: Build updater package
-        shell: pwsh
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Path release | Out-Null
-          Copy-Item EverQuest_Key_Helper.ahk, Update_EverQuest_Key_Helper.ps1, VERSION, EverQuest_Key_Helper_Final_Instructions.txt release
-          Compress-Archive -Path release\* -DestinationPath EverQuest_Key_Helper_Update.zip
-          Compress-Archive -Path EverQuest_Key_Helper.ahk, Update_EverQuest_Key_Helper.ps1, Install_EverQuest_Key_Helper.ps1, Start_EverQuest_Key_Helper.ps1, VERSION, EverQuest_Key_Helper_Final_Instructions.txt -DestinationPath EverQuest_Key_Helper_Full.zip
+          mkdir release
+          cp EverQuest_Key_Helper.ahk Update_EverQuest_Key_Helper.ps1 VERSION EverQuest_Key_Helper_Final_Instructions.txt release/
+          (cd release && zip -r ../EverQuest_Key_Helper_Update.zip .)
+          zip EverQuest_Key_Helper_Full.zip EverQuest_Key_Helper.ahk Update_EverQuest_Key_Helper.ps1 Install_EverQuest_Key_Helper.ps1 Start_EverQuest_Key_Helper.ps1 VERSION EverQuest_Key_Helper_Final_Instructions.txt
 
       - name: Create GitHub release
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME EverQuest_Key_Helper_Update.zip EverQuest_Key_Helper_Full.zip --generate-notes --title "EverQuest Key Helper $env:GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" EverQuest_Key_Helper_Update.zip EverQuest_Key_Helper_Full.zip --generate-notes --title "EverQuest Key Helper $GITHUB_REF_NAME"

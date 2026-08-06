@@ -16,9 +16,9 @@ On each launch, the helper checks the latest GitHub Release. If a newer semantic
 4. Tag that commit and push the tag:
 
 ```powershell
-git tag v1.4.1
+git tag v1.4.2
 git push origin main
-git push origin v1.4.1
+git push origin v1.4.2
 ```
 
 The release workflow creates both the updater package and the complete installer package. Do not rename `EverQuest_Key_Helper_Update.zip`; installed helpers look for that exact release asset.
